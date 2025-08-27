@@ -1,0 +1,42 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build artifacts
+/build/
+/bin/
+/dist/
+
+# Dependency directories (if vendoring)
+vendor/
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.sublime-project
+*.sublime-workspace
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment/config
+.env
+.env.local
+.env.*.local
+
+# Database dumps or temp files
+*.sql
+*.sqlite
+*.db
+
+# Go module cache (optional)
+go.sum
