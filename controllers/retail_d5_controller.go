@@ -63,7 +63,7 @@ func getCurrentShift(t time.Time) int {
 	}
 }
 
-func DurasiStartMesinRealtime(c *gin.Context) {
+func UptimeStartMesinRealtime(c *gin.Context) {
 	dateParam := c.Query("date")
 	var date time.Time
 	var err error
@@ -78,25 +78,46 @@ func DurasiStartMesinRealtime(c *gin.Context) {
 		}
 	}
 
-	var shifts []ShiftInfo
+	var shifts []gin.H
+	now := time.Now()
+
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(date, i)
+
 		var count int64
 		config.DB.Model(&models.RetailD5{}).
 			Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
 			Count(&count)
 
-		shifts = append(shifts, ShiftInfo{
-			Shift:     i,
-			StartTime: start,
-			EndTime:   end,
-			Runtime:   count,
+		// Hitung actual_shift_time
+		var actualMinutes int64
+		if now.After(end) {
+			actualMinutes = 420 // default 7 jam
+		} else {
+			actualMinutes = int64(now.Sub(start).Minutes())
+			if actualMinutes < 0 {
+				actualMinutes = 0
+			}
+		}
+
+		uptime := 0.0
+		if actualMinutes > 0 {
+			uptime = float64(count) / float64(actualMinutes)
+		}
+
+		shifts = append(shifts, gin.H{
+			"shift":                  i,
+			"start_time":             start,
+			"end_time":               end,
+			"runtime_total_seconds":  count,
+			"actual_shift_minutes":   actualMinutes,
+			"uptime":                 uptime,
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"date":          date.Format("2006-01-02"),
-		"current_shift": getCurrentShift(time.Now()),
+		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
 }
