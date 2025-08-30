@@ -1,7 +1,7 @@
 package main
 
 import (
-     "backend-golang/config"
+    "backend-golang/config"
     "backend-golang/routes"
     "github.com/gin-gonic/gin"
     "github.com/joho/godotenv"

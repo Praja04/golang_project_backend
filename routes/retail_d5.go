@@ -1,7 +1,7 @@
 package routes
 
 import (
-    "retail-runtime/controllers"
+    "backend-golang/controllers"
     "github.com/gin-gonic/gin"
 )
 

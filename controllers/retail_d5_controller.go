@@ -1,8 +1,8 @@
 package controllers
 
 import (
-	"retail-runtime/config"
-	"retail-runtime/models"
+	"backend-golang/config"
+	"backend-golang/models"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"time"
