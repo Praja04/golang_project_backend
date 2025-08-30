@@ -1,8 +1,8 @@
 package main
 
 import (
-    "retail-runtime/config"
-    "retail-runtime/routes"
+     "backend-golang/config"
+    "backend-golang/routes"
     "github.com/gin-gonic/gin"
     "github.com/joho/godotenv"
     "log"
