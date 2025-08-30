@@ -1,91 +1,102 @@
 package controllers
 
 import (
-    "backend-golang/config"
-    "backend-golang/models"
-    "github.com/gin-gonic/gin"
-    "time"
+	"retail-runtime/config"
+	"retail-runtime/models"
+	"github.com/gin-gonic/gin"
+	"net/http"
+	"time"
 )
 
-type Shift struct {
-    Name  string
-    Start time.Time
-    End   time.Time
+type ShiftInfo struct {
+	Shift     int       `json:"shift"`
+	StartTime time.Time `json:"start_time"`
+	EndTime   time.Time `json:"end_time"`
+	Runtime   int64     `json:"runtime_total_seconds"`
 }
 
-func getShiftSchedule(tanggal time.Time) []Shift {
-    weekday := tanggal.Weekday()
-    if weekday == time.Saturday {
-        return []Shift{
-            {"Shift 1", time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 6, 0, 0, 0, tanggal.Location()),
-             time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 11, 0, 0, 0, tanggal.Location())},
-            {"Shift 2", time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 11, 0, 1, 0, tanggal.Location()),
-             time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 16, 0, 0, 0, tanggal.Location())},
-            {"Shift 3", time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 16, 0, 1, 0, tanggal.Location()),
-             time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 21, 0, 0, 0, tanggal.Location())},
-        }
-    }
+func getShiftRange(date time.Time, shift int) (time.Time, time.Time) {
+	loc := date.Location()
+	isSaturday := date.Weekday() == time.Saturday
 
-    return []Shift{
-        {"Shift 1", time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 6, 0, 0, 0, tanggal.Location()),
-         time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 14, 0, 0, 0, tanggal.Location())},
-        {"Shift 2", time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 14, 0, 1, 0, tanggal.Location()),
-         time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 22, 0, 0, 0, tanggal.Location())},
-        {"Shift 3", time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day(), 22, 0, 1, 0, tanggal.Location()),
-         time.Date(tanggal.Year(), tanggal.Month(), tanggal.Day()+1, 5, 59, 59, 0, tanggal.Location())},
-    }
+	switch {
+	case isSaturday && shift == 1:
+		return time.Date(date.Year(), date.Month(), date.Day(), 6, 0, 0, 0, loc),
+			time.Date(date.Year(), date.Month(), date.Day(), 11, 0, 0, 0, loc)
+	case isSaturday && shift == 2:
+		return time.Date(date.Year(), date.Month(), date.Day(), 11, 1, 0, 0, loc),
+			time.Date(date.Year(), date.Month(), date.Day(), 16, 0, 0, 0, loc)
+	case isSaturday && shift == 3:
+		return time.Date(date.Year(), date.Month(), date.Day(), 16, 1, 0, 0, loc),
+			time.Date(date.Year(), date.Month(), date.Day(), 21, 0, 0, 0, loc)
+	case !isSaturday && shift == 1:
+		return time.Date(date.Year(), date.Month(), date.Day(), 6, 0, 0, 0, loc),
+			time.Date(date.Year(), date.Month(), date.Day(), 14, 0, 0, 0, loc)
+	case !isSaturday && shift == 2:
+		return time.Date(date.Year(), date.Month(), date.Day(), 14, 1, 0, 0, loc),
+			time.Date(date.Year(), date.Month(), date.Day(), 22, 0, 0, 0, loc)
+	case !isSaturday && shift == 3:
+		return time.Date(date.Year(), date.Month(), date.Day(), 22, 1, 0, 0, loc),
+			time.Date(date.Year(), date.Month(), date.Day()+1, 5, 59, 59, 0, loc)
+	default:
+		return time.Time{}, time.Time{}
+	}
+}
+
+func getCurrentShift(t time.Time) int {
+	h, m := t.Hour(), t.Minute()
+	isSaturday := t.Weekday() == time.Saturday
+
+	switch {
+	case isSaturday && (h < 11 || (h == 11 && m == 0)):
+		return 1
+	case isSaturday && (h < 16 || (h == 16 && m == 0)):
+		return 2
+	case isSaturday:
+		return 3
+	case !isSaturday && (h < 14 || (h == 14 && m == 0)):
+		return 1
+	case !isSaturday && (h < 22 || (h == 22 && m == 0)):
+		return 2
+	default:
+		return 3
+	}
 }
 
 func DurasiStartMesinRealtime(c *gin.Context) {
-    loc, _ := time.LoadLocation("Asia/Jakarta")
-    now := time.Now().In(loc)
-    tanggalStr := c.Query("tanggal")
+	dateParam := c.Query("date")
+	var date time.Time
+	var err error
 
-    var tanggal time.Time
-    var err error
-    if tanggalStr != "" {
-        tanggal, err = time.ParseInLocation("2006-01-02", tanggalStr, loc)
-        if err != nil {
-            c.JSON(400, gin.H{"error": "Format tanggal tidak valid"})
-            return
-        }
-    } else {
-        tanggal = now
-    }
+	if dateParam == "" {
+		date = time.Now()
+	} else {
+		date, err = time.Parse("2006-01-02", dateParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
+			return
+		}
+	}
 
-    shifts := getShiftSchedule(tanggal)
-    hasil := map[string]interface{}{}
+	var shifts []ShiftInfo
+	for i := 1; i <= 3; i++ {
+		start, end := getShiftRange(date, i)
+		var count int64
+		config.DB.Model(&models.RetailD5{}).
+			Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
+			Count(&count)
 
-    for _, shift := range shifts {
-        var count int64
-        config.DB.Model(&models.RetailD5{}).
-            Where("ts BETWEEN ? AND ?", shift.Start, shift.End).
-            Where("start_mesin = ?", 1).
-            Count(&count)
+		shifts = append(shifts, ShiftInfo{
+			Shift:     i,
+			StartTime: start,
+			EndTime:   end,
+			Runtime:   count,
+		})
+	}
 
-        var menitBerjalan int
-        if now.After(shift.Start) && now.Before(shift.End) {
-            menitBerjalan = int(now.Sub(shift.Start).Minutes())
-        } else {
-            menitBerjalan = int(shift.End.Sub(shift.Start).Minutes())
-        }
-
-        isSaturday := tanggal.Weekday() == time.Saturday
-        pembagi := menitBerjalan
-        if now.After(shift.End) {
-            pembagi = 300
-            if !isSaturday {
-                pembagi = 420
-            }
-        }
-
-        key := "shift" + shift.Name[len(shift.Name)-1:]
-        hasil[key] = gin.H{
-            "menit_shift": menitBerjalan,
-            "detik":       count,
-            "hasil":       float64(count) / 60 / float64(pembagi),
-        }
-    }
-
-    c.JSON(200, gin.H{"result": hasil})
+	c.JSON(http.StatusOK, gin.H{
+		"date":          date.Format("2006-01-02"),
+		"current_shift": getCurrentShift(time.Now()),
+		"shifts":        shifts,
+	})
 }
