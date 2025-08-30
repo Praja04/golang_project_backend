@@ -84,12 +84,15 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(date, i)
 
-		var count int64
+		var countSeconds int64
 		config.DB.Model(&models.RetailD5{}).
 			Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
-			Count(&count)
+			Count(&countSeconds)
 
-		// Hitung actual_shift_time
+		// Konversi runtime ke menit
+		runtimeMinutes := countSeconds / 60
+
+		// Hitung actual shift time
 		var actualMinutes int64
 		if now.After(end) {
 			actualMinutes = 420 // default 7 jam
@@ -100,16 +103,17 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 			}
 		}
 
+		// Hitung uptime
 		uptime := 0.0
 		if actualMinutes > 0 {
-			uptime = float64(count) / float64(actualMinutes)
+			uptime = float64(runtimeMinutes) / float64(actualMinutes)
 		}
 
 		shifts = append(shifts, gin.H{
 			"shift":                  i,
 			"start_time":             start,
 			"end_time":               end,
-			"runtime_total_seconds":  count,
+			"runtime_total_minutes":  runtimeMinutes,
 			"actual_shift_minutes":   actualMinutes,
 			"uptime":                 uptime,
 		})
