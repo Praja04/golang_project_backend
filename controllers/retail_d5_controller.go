@@ -63,7 +63,6 @@ func getCurrentShift(t time.Time) int {
 	}
 }
 // hitung runtime dari database (full shift)
-// hitung runtime dari database (full shift)
 func getShiftRuntime(start, end time.Time) int64 {
     var countSeconds int64
     config.DB.Model(&models.RetailD5{}).
@@ -86,30 +85,28 @@ func getActualShiftMinutes(start, end time.Time) int64 {
 }
 
 func UptimeStartMesinRealtime(c *gin.Context) {
-   
-
     dateParam := c.Query("date")
     var date time.Time
     var err error
 
     if dateParam == "" {
-        date = time.Now().In(loc) // actual shift mengikuti Jakarta
+        date = time.Now() // tanpa loc, biarin default
     } else {
-        date, err = time.ParseInLocation("2006-01-02", dateParam, loc)
+        date, err = time.Parse("2006-01-02", dateParam) // parse default juga
         if err != nil {
             c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
             return
         }
     }
 
-    now := time.Now().In(loc) // current shift juga ikut Jakarta
+    now := time.Now() // default, ga pakai loc
     var shifts []gin.H
 
     for i := 1; i <= 3; i++ {
         start, end := getShiftRange(date, i)
 
-        runtimeMinutes := getShiftRuntime(start, end)         // runtime: langsung query DB
-        actualMinutes := getActualShiftMinutes(start, end)    // actual: pakai Asia/Jakarta
+        runtimeMinutes := getShiftRuntime(start, end)      // query DB apa adanya
+        actualMinutes := getActualShiftMinutes(start, end) // ini yang handle loc Jakarta
 
         uptime := 0.0
         if actualMinutes > 0 {
@@ -132,4 +129,3 @@ func UptimeStartMesinRealtime(c *gin.Context) {
         "shifts":        shifts,
     })
 }
-
