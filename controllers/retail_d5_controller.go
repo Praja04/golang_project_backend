@@ -11,7 +11,6 @@ import (
 )
 
 // Definisikan global location sekali saja
-var loc, _ = time.LoadLocation("Asia/Jakarta")
 
 // Ambil total runtime (full shift) dari DB
 func getShiftRuntime(start, end time.Time) int64 {
@@ -29,6 +28,8 @@ func getShiftRuntime(start, end time.Time) int64 {
 }
 
 func getActualShiftMinutes(start, end, now time.Time) int64 {
+	var loc, _ = time.LoadLocation("Asia/Jakarta")
+
 	if now.Before(start) {
 		return 0
 	} else if now.After(end) {
@@ -43,10 +44,10 @@ func getShiftRange(baseDate time.Time, shift int) (time.Time, time.Time) {
 		return time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc),
 			time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 0, 0, 0, loc)
 	case 2:
-		return time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 1, 0, 0, loc),
+		return time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 0, 1, 0, loc),
 			time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 0, 0, 0, loc)
 	case 3:
-		return time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 1, 0, 0, loc),
+		return time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 0, 1, 0, loc),
 			time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 5, 59, 59, 0, loc)
 	}
 	return baseDate, baseDate
