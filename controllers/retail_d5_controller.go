@@ -10,7 +10,7 @@ import (
 	"backend-golang/models"
 )
 
-// Ambil total runtime (full shift) dari DB
+// Ambil total runtime (start_mesin = 1) dari DB
 func getShiftRuntime(start, end, now time.Time) int64 {
 	// Jika shift belum dimulai, return 0
 	if now.Before(start) {
@@ -27,7 +27,7 @@ func getShiftRuntime(start, end, now time.Time) int64 {
 	endStr := endLocal.Format("2006-01-02 15:04:05")
 	
 	// Debug: print query parameters
-	fmt.Printf("Query DB - Start: %s, End: %s\n", startStr, endStr)
+	fmt.Printf("Query DB Runtime - Start: %s, End: %s\n", startStr, endStr)
 	
 	var countSeconds int64
 	result := config.DB.Model(&models.RetailD5{}).
@@ -39,11 +39,12 @@ func getShiftRuntime(start, end, now time.Time) int64 {
 		return 0
 	}
 
-	fmt.Printf("DB Result - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
+	fmt.Printf("DB Result Runtime - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
 	
 	return countSeconds / 60 // convert detik → menit
 }
 
+// Ambil total stoptime (start_mesin = 0) dari DB
 func getShiftStoptime(start, end, now time.Time) int64 {
 	// Jika shift belum dimulai, return 0
 	if now.Before(start) {
@@ -60,7 +61,7 @@ func getShiftStoptime(start, end, now time.Time) int64 {
 	endStr := endLocal.Format("2006-01-02 15:04:05")
 	
 	// Debug: print query parameters
-	fmt.Printf("Query DB - Start: %s, End: %s\n", startStr, endStr)
+	fmt.Printf("Query DB Stoptime - Start: %s, End: %s\n", startStr, endStr)
 	
 	var countSeconds int64
 	result := config.DB.Model(&models.RetailD5{}).
@@ -72,9 +73,74 @@ func getShiftStoptime(start, end, now time.Time) int64 {
 		return 0
 	}
 
-	fmt.Printf("DB Result - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
+	fmt.Printf("DB Result Stoptime - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
 	
 	return countSeconds / 60 // convert detik → menit
+}
+
+// Ambil data terakhir total_counter dari DB untuk shift tertentu
+// dengan logika: ambil data terakhir sebelum bernilai 0, atau data terakhir di akhir shift
+func getLatestTotalCounter(start, end, now time.Time) int64 {
+	// Jika shift belum dimulai, return 0
+	if now.Before(start) {
+		return 0
+	}
+	
+	// Konversi ke Asia/Jakarta dulu, lalu format tanpa timezone (seperti di DB)
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startLocal := start.In(loc)
+	endLocal := end.In(loc)
+	
+	// Format ke string tanpa timezone (format yang sama dengan DB)
+	startStr := startLocal.Format("2006-01-02 15:04:05")
+	endStr := endLocal.Format("2006-01-02 15:04:05")
+	
+	// Debug: print query parameters
+	fmt.Printf("Query DB Latest Counter - Start: %s, End: %s\n", startStr, endStr)
+	
+	// Step 1: Cari apakah ada data dengan total_counter = 0 dalam shift
+	var zeroRecord models.RetailD5
+	zeroResult := config.DB.Model(&models.RetailD5{}).
+		Where("ts >= ? AND ts <= ? AND total_counter = ?", startStr, endStr, 0).
+		Order("ts ASC"). // Ambil yang pertama kali jadi 0
+		First(&zeroRecord)
+
+	if zeroResult.Error == nil {
+		// Ada data yang bernilai 0, cari data terakhir sebelum waktu tersebut yang > 0
+		fmt.Printf("Found zero counter at: %s\n", zeroRecord.Ts)
+		
+		var lastNonZeroRecord models.RetailD5
+		nonZeroResult := config.DB.Model(&models.RetailD5{}).
+			Where("ts >= ? AND ts < ? AND total_counter > ?", startStr, zeroRecord.Ts, 0).
+			Order("ts DESC").
+			First(&lastNonZeroRecord)
+
+		if nonZeroResult.Error == nil {
+			fmt.Printf("DB Result - Latest total_counter before zero: %d at %s\n", 
+				lastNonZeroRecord.TotalCounter, lastNonZeroRecord.Ts)
+			return int64(lastNonZeroRecord.TotalCounter)
+		} else {
+			// Tidak ada data sebelum nilai 0, return 0
+			fmt.Println("No non-zero data found before zero value")
+			return 0
+		}
+	} else {
+		// Tidak ada data yang bernilai 0, ambil data terakhir dalam shift yang > 0
+		var latestRecord models.RetailD5
+		result := config.DB.Model(&models.RetailD5{}).
+			Where("ts >= ? AND ts <= ? AND total_counter > ?", startStr, endStr, 0).
+			Order("ts DESC").
+			First(&latestRecord)
+
+		if result.Error != nil {
+			fmt.Println("DB Error:", result.Error)
+			return 0
+		}
+
+		fmt.Printf("DB Result - Latest total_counter (no zero found): %d at %s\n", 
+			latestRecord.TotalCounter, latestRecord.Ts)
+		return int64(latestRecord.TotalCounter)
+	}
 }
 
 // Hitung actual shift minutes (sampai "now") → khusus pakai Asia/Jakarta
@@ -132,7 +198,7 @@ func getCurrentShift(now time.Time) int {
 	return 3
 }
 
-// Controller utama
+// Controller untuk Uptime (Runtime)
 func UptimeStartMesinRealtime(c *gin.Context) {
 	dateParam := c.Query("date")
 
@@ -195,6 +261,7 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 	})
 }
 
+// Controller untuk Downtime (Stoptime)
 func DowntimeStopMesinRealtime(c *gin.Context) {
 	dateParam := c.Query("date")
 
@@ -233,7 +300,7 @@ func DowntimeStopMesinRealtime(c *gin.Context) {
 		actualMinutes := getActualShiftMinutes(start, end, now)
 		
 		// Debug: print calculations
-		fmt.Printf("Shift %d: Runtime=%d, Actual=%d\n", i, downtimeMinutes, actualMinutes)
+		fmt.Printf("Shift %d: Downtime=%d, Actual=%d\n", i, downtimeMinutes, actualMinutes)
 
 		downtime := 0.0
 		if actualMinutes > 0 {
@@ -241,12 +308,79 @@ func DowntimeStopMesinRealtime(c *gin.Context) {
 		}
 
 		shifts = append(shifts, gin.H{
-			"shift":                 i,
-			"start_time":            start,
-			"end_time":              end,
+			"shift":                  i,
+			"start_time":             start,
+			"end_time":               end,
 			"downtime_total_minutes": downtimeMinutes,
-			"actual_shift_minutes":  actualMinutes,
-			"downtime":                downtime,
+			"actual_shift_minutes":   actualMinutes,
+			"downtime":               downtime,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"date":          baseDate.Format("2006-01-02"),
+		"current_shift": getCurrentShift(now),
+		"shifts":        shifts,
+	})
+}
+
+// Controller untuk Performance Output - sudah bisa menerima parameter tanggal
+func PerformanceOutput(c *gin.Context) {
+	dateParam := c.Query("date")
+
+	// Load Asia/Jakarta timezone
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	
+	// Default pakai tanggal hari ini dalam Asia/Jakarta timezone
+	baseDate := time.Now().In(loc)
+
+	if dateParam != "" {
+		// Parse date dan set ke Asia/Jakarta timezone
+		parsedDate, err := time.Parse("2006-01-02", dateParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
+			return
+		}
+		// Set timezone ke Asia/Jakarta
+		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
+	}
+
+	// Gunakan waktu sekarang dalam Asia/Jakarta timezone
+	now := time.Now().In(loc)
+	
+	// Debug: print current time
+	fmt.Printf("Current time (Asia/Jakarta): %v\n", now)
+	
+	var shifts []gin.H
+
+	for i := 1; i <= 3; i++ {
+		start, end := getShiftRange(baseDate, i)
+		
+		// Debug: print shift times
+		fmt.Printf("Shift %d: Start=%v, End=%v\n", i, start, end)
+
+		totalCounter := getLatestTotalCounter(start, end, now)
+		actualMinutes := getActualShiftMinutes(start, end, now)
+		
+		// Debug: print calculations
+		fmt.Printf("Shift %d: TotalCounter=%d, Actual=%d\n", i, totalCounter, actualMinutes)
+
+		// Rumus: performance_output = total_counter / (actualshiftminutes x 40 x 2)
+		performanceOutput := 0.0
+		expectedOutput := int64(0)
+		if actualMinutes > 0 {
+			expectedOutput = actualMinutes * 40 * 2 // target output per menit
+			performanceOutput = float64(totalCounter) / float64(expectedOutput) * 100 // dalam persen
+		}
+
+		shifts = append(shifts, gin.H{
+			"shift":               i,
+			"start_time":          start,
+			"end_time":            end,
+			"total_counter":       totalCounter,
+			"actual_shift_minutes": actualMinutes,
+			"expected_output":     expectedOutput,
+			"performance_output":  performanceOutput,
 		})
 	}
 
