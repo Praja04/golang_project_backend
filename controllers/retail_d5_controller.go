@@ -27,19 +27,22 @@ func getShiftRuntime(start, end time.Time) int64 {
 
 // Hitung actual shift minutes (sampai "now") → khusus pakai Asia/Jakarta
 func getActualShiftMinutes(start, end, now time.Time) int64 {
-	loc := baseDate.Location()
+	loc, _ := time.LoadLocation("Asia/Jakarta")
 	start = start.In(loc)
 	end = end.In(loc)
 	now = now.In(loc)
 
+	var actualMinutes int64
+	
 	if now.Before(start) {
-	return 0
+		actualMinutes = 0
 	} else if now.After(end) {
-		return int64(end.Sub(start).Minutes()) // full shift duration
+		actualMinutes = int64(end.Sub(start).Minutes()) // full shift duration
 	} else {
-		return int64(now.Sub(start).Minutes()) // partial shift
+		actualMinutes = int64(now.Sub(start).Minutes()) // partial shift
 	}
-	return int64(now.Sub(start).Minutes())
+	
+	return actualMinutes
 }
 
 // Tentukan range shift (pakai timezone dari baseDate)
@@ -77,19 +80,24 @@ func getCurrentShift(now time.Time) int {
 func UptimeStartMesinRealtime(c *gin.Context) {
 	dateParam := c.Query("date")
 
-	// default pakai UTC
-	baseDate := time.Now().UTC()
+	// default pakai Asia/Jakarta timezone
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	baseDate := time.Now().In(loc)
 	var err error
 
 	if dateParam != "" {
-		baseDate, err = time.Parse("2006-01-02", dateParam)
+		// Parse date dan set ke Asia/Jakarta timezone
+		parsedDate, err := time.Parse("2006-01-02", dateParam)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
 			return
 		}
+		// Set timezone ke Asia/Jakarta
+		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
 	}
 
-	now := time.Now().UTC()
+	// Gunakan waktu sekarang dalam Asia/Jakarta timezone
+	now := time.Now().In(loc)
 	var shifts []gin.H
 
 	for i := 1; i <= 3; i++ {
@@ -100,7 +108,7 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 
 		uptime := 0.0
 		if actualMinutes > 0 {
-			uptime = float64(runtimeMinutes) / float64(actualMinutes)
+			uptime = float64(runtimeMinutes) / float64(actualMinutes) * 100 // dalam persen
 		}
 
 		shifts = append(shifts, gin.H{
