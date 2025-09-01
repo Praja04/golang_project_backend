@@ -62,15 +62,31 @@ func getCurrentShift(t time.Time) int {
 		return 3
 	}
 }
+// hitung runtime dari database (full shift)
+func getShiftRuntime(start, end time.Time) int64 {
+    var countSeconds int64
+    config.DB.Model(&models.RetailD5{}).
+        Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
+        Count(&countSeconds)
+    return countSeconds / 60
+}
+
+// hitung actual shift time (sampai jam now)
+func getActualShiftMinutes(start, end, now time.Time) int64 {
+    if now.Before(start) {
+        return 0
+    } else if now.After(end) {
+        return int64(end.Sub(start).Minutes())
+    }
+    return int64(now.Sub(start).Minutes())
+}
 
 func UptimeStartMesinRealtime(c *gin.Context) {
-    // set timezone Asia/Jakarta
     loc, _ := time.LoadLocation("Asia/Jakarta")
-
     dateParam := c.Query("date")
+
     var date time.Time
     var err error
-
     if dateParam == "" {
         date = time.Now().In(loc)
     } else {
@@ -81,27 +97,14 @@ func UptimeStartMesinRealtime(c *gin.Context) {
         }
     }
 
+    now := time.Now().In(loc)
     var shifts []gin.H
-    now := time.Now().In(loc)  // <- penting, samakan timezone
 
     for i := 1; i <= 3; i++ {
         start, end := getShiftRange(date, i)
 
-        var countSeconds int64
-        config.DB.Model(&models.RetailD5{}).
-            Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
-            Count(&countSeconds)
-
-        runtimeMinutes := countSeconds / 60
-
-        var actualMinutes int64
-        if now.Before(start) {
-            actualMinutes = 0
-        } else if now.After(end) {
-            actualMinutes = int64(end.Sub(start).Minutes())
-        } else {
-            actualMinutes = int64(now.Sub(start).Minutes())
-        }
+        runtimeMinutes := getShiftRuntime(start, end)             // total runtime shift dari DB
+        actualMinutes := getActualShiftMinutes(start, end, now)   // berapa menit shift berjalan
 
         uptime := 0.0
         if actualMinutes > 0 {
@@ -109,9 +112,9 @@ func UptimeStartMesinRealtime(c *gin.Context) {
         }
 
         shifts = append(shifts, gin.H{
-            "shift":                i,
-            "start_time":           start,
-            "end_time":             end,
+            "shift":                 i,
+            "start_time":            start,
+            "end_time":              end,
             "runtime_total_minutes": runtimeMinutes,
             "actual_shift_minutes":  actualMinutes,
             "uptime":                uptime,
