@@ -351,8 +351,10 @@ func PerformanceOutput(c *gin.Context) {
 		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
+	
+}
 
-	// Ambil main_speed terakhir dalam shift
+// Ambil main_speed terakhir dalam shift
 func getLastMainSpeed(start, end, now time.Time) int64 {
 	if now.Before(start) {
 		return 0
@@ -428,6 +430,4 @@ func OutputGagalFilling(c *gin.Context) {
 		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
-}
-
 }
