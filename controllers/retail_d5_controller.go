@@ -62,7 +62,12 @@ func getCurrentShift(t time.Time) int {
 		return 3
 	}
 }
-
+func min(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
 func UptimeStartMesinRealtime(c *gin.Context) {
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	dateParam := c.Query("date")
