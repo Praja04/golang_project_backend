@@ -93,9 +93,14 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 
 
 		var countSeconds int64
-		config.DB.Model(&models.RetailD5{}).
-			Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, startUTC, endUTC).
-			Count(&countSeconds)
+		if now.Before(start) {
+			countSeconds = 0
+		} else {
+			config.DB.Model(&models.RetailD5{}).
+				Where("start_mesin = ? AND DATE(ts) = ?", 1, date.Format("2006-01-02")).
+				Where("ts >= ? AND ts <= ?", start.In(time.UTC), min(end.In(time.UTC), now.In(time.UTC))).
+				Count(&countSeconds)
+		}
 
 
 		// Konversi runtime ke menit
