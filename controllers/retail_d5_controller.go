@@ -10,6 +10,9 @@ import (
 	"backend-golang/models"
 )
 
+// Definisikan global location sekali saja
+var loc, _ = time.LoadLocation("Asia/Jakarta")
+
 // Ambil total runtime (full shift) dari DB
 func getShiftRuntime(start, end time.Time) int64 {
 	var countSeconds int64
@@ -25,7 +28,6 @@ func getShiftRuntime(start, end time.Time) int64 {
 	return countSeconds / 60 // convert detik → menit
 }
 
-// Hitung actual shift minutes (sampai "now")
 func getActualShiftMinutes(start, end, now time.Time) int64 {
 	if now.Before(start) {
 		return 0
@@ -35,27 +37,21 @@ func getActualShiftMinutes(start, end, now time.Time) int64 {
 	return int64(now.Sub(start).Minutes())
 }
 
-// Tentukan range shift
 func getShiftRange(baseDate time.Time, shift int) (time.Time, time.Time) {
-	loc := baseDate.Location()
 	switch shift {
 	case 1:
-		start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc)
-		end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 0, 0, 0, loc)
-		return start, end
+		return time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc),
+			time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 0, 0, 0, loc)
 	case 2:
-		start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 1, 0, 0, loc)
-		end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 0, 0, 0, loc)
-		return start, end
+		return time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 1, 0, 0, loc),
+			time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 0, 0, 0, loc)
 	case 3:
-		start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 1, 0, 0, loc)
-		end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 5, 59, 59, 0, loc)
-		return start, end
+		return time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 1, 0, 0, loc),
+			time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 5, 59, 59, 0, loc)
 	}
 	return baseDate, baseDate
 }
 
-// Tentukan shift sekarang
 func getCurrentShift(now time.Time) int {
 	hour, min := now.Hour(), now.Minute()
 	if hour >= 6 && (hour < 14 || (hour == 14 && min == 0)) {
@@ -68,8 +64,6 @@ func getCurrentShift(now time.Time) int {
 
 // Controller utama
 func UptimeStartMesinRealtime(c *gin.Context) {
-	loc, _ := time.LoadLocation("Asia/Jakarta")
-
 	dateParam := c.Query("date")
 	var baseDate time.Time
 	var err error
