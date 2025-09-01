@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -9,55 +10,103 @@ import (
 	"backend-golang/models"
 )
 
-// Struct untuk aggregate query results
-type ShiftStats struct {
-	RuntimeMinutes  int64 `gorm:"column:runtime_minutes"`
-	StoptimeMinutes int64 `gorm:"column:stoptime_minutes"`
-	LatestCounter   int64 `gorm:"column:latest_counter"`
-}
-
-// Single query untuk ambil semua data shift sekaligus
-func getShiftStatsOptimized(start, end time.Time) ShiftStats {
+// Ambil total runtime (start_mesin = 1) dari DB
+func getShiftRuntime(start, end, now time.Time) int64 {
+	// Jika shift belum dimulai, return 0
+	if now.Before(start) {
+		return 0
+	}
+	
+	// Konversi ke Asia/Jakarta dulu, lalu format tanpa timezone (seperti di DB)
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	startLocal := start.In(loc)
 	endLocal := end.In(loc)
 	
+	// Format ke string tanpa timezone (format yang sama dengan DB)
 	startStr := startLocal.Format("2006-01-02 15:04:05")
 	endStr := endLocal.Format("2006-01-02 15:04:05")
 	
-	var stats ShiftStats
+	// Debug: print query parameters
+	fmt.Printf("Query DB Runtime - Start: %s, End: %s\n", startStr, endStr)
 	
-	// Single raw SQL query untuk performa maksimal
-	query := `
-		SELECT 
-			COALESCE(SUM(CASE WHEN start_mesin = 1 THEN 1 ELSE 0 END), 0) / 60 as runtime_minutes,
-			COALESCE(SUM(CASE WHEN start_mesin = 0 THEN 1 ELSE 0 END), 0) / 60 as stoptime_minutes,
-			COALESCE(MAX(CASE WHEN total_counter > 0 THEN total_counter ELSE 0 END), 0) as latest_counter
-		FROM retail_d5 
-		WHERE ts >= ? AND ts <= ?
-	`
+	var countSeconds int64
+	result := config.DB.Model(&models.RetailD5{}).
+		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, startStr, endStr).
+		Count(&countSeconds)
+
+	if result.Error != nil {
+		fmt.Println("DB Error:", result.Error)
+		return 0
+	}
+
+	fmt.Printf("DB Result Runtime - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
 	
-	config.DB.Raw(query, startStr, endStr).Scan(&stats)
-	return stats
+	return countSeconds / 60 // convert detik → menit
 }
 
-// Optimized version tanpa debug prints
-func getActualShiftMinutesOptimized(start, end, now time.Time) int64 {
+// Ambil total stoptime (start_mesin = 0) dari DB
+func getShiftStoptime(start, end, now time.Time) int64 {
+	// Jika shift belum dimulai, return 0
+	if now.Before(start) {
+		return 0
+	}
+	
+	// Konversi ke Asia/Jakarta dulu, lalu format tanpa timezone (seperti di DB)
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startLocal := start.In(loc)
+	endLocal := end.In(loc)
+	
+	// Format ke string tanpa timezone (format yang sama dengan DB)
+	startStr := startLocal.Format("2006-01-02 15:04:05")
+	endStr := endLocal.Format("2006-01-02 15:04:05")
+	
+	// Debug: print query parameters
+	fmt.Printf("Query DB Stoptime - Start: %s, End: %s\n", startStr, endStr)
+	
+	var countSeconds int64
+	result := config.DB.Model(&models.RetailD5{}).
+		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 0, startStr, endStr).
+		Count(&countSeconds)
+
+	if result.Error != nil {
+		fmt.Println("DB Error:", result.Error)
+		return 0
+	}
+
+	fmt.Printf("DB Result Stoptime - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
+	
+	return countSeconds / 60 // convert detik → menit
+}
+
+
+
+
+// Hitung actual shift minutes (sampai "now") → khusus pakai Asia/Jakarta
+func getActualShiftMinutes(start, end, now time.Time) int64 {
+	// Pastikan semua waktu dalam timezone yang sama
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	start = start.In(loc)
 	end = end.In(loc)
 	now = now.In(loc)
 
+	var actualMinutes int64
+	
 	if now.Before(start) {
-		return 0
+		// Shift belum dimulai
+		actualMinutes = 0
 	} else if now.After(end) {
-		return int64(end.Sub(start).Minutes())
+		// Shift sudah selesai, hitung full duration
+		actualMinutes = int64(end.Sub(start).Minutes())
 	} else {
-		return int64(now.Sub(start).Minutes())
+		// Shift sedang berjalan, hitung dari start sampai now
+		actualMinutes = int64(now.Sub(start).Minutes())
 	}
+	
+	return actualMinutes
 }
 
-func getShiftRangeOptimized(baseDate time.Time, shift int) (time.Time, time.Time) {
+// Tentukan range shift (pakai timezone dari baseDate)
+func getShiftRange(baseDate time.Time, shift int) (time.Time, time.Time) {
 	loc := baseDate.Location()
 	switch shift {
 	case 1:
@@ -76,7 +125,8 @@ func getShiftRangeOptimized(baseDate time.Time, shift int) (time.Time, time.Time
 	return baseDate, baseDate
 }
 
-func getCurrentShiftOptimized(now time.Time) int {
+// Tentukan shift sekarang
+func getCurrentShift(now time.Time) int {
 	hour, min := now.Hour(), now.Minute()
 	if hour >= 6 && (hour < 14 || (hour == 14 && min == 0)) {
 		return 1
@@ -86,40 +136,57 @@ func getCurrentShiftOptimized(now time.Time) int {
 	return 3
 }
 
-// Ultra-fast uptime controller
-func UptimeStartMesinRealtimeOptimized(c *gin.Context) {
+// Controller untuk Uptime (Runtime)
+func UptimeStartMesinRealtime(c *gin.Context) {
 	dateParam := c.Query("date")
+
+	// Load Asia/Jakarta timezone
 	loc, _ := time.LoadLocation("Asia/Jakarta")
+	
+	// Default pakai tanggal hari ini dalam Asia/Jakarta timezone
 	baseDate := time.Now().In(loc)
 
 	if dateParam != "" {
+		// Parse date dan set ke Asia/Jakarta timezone
 		parsedDate, err := time.Parse("2006-01-02", dateParam)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
 			return
 		}
+		// Set timezone ke Asia/Jakarta
 		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
 	}
 
+	// Gunakan waktu sekarang dalam Asia/Jakarta timezone
 	now := time.Now().In(loc)
+	
+	// Debug: print current time
+	fmt.Printf("Current time (Asia/Jakarta): %v\n", now)
+	
 	var shifts []gin.H
 
-	// Process all shifts at once
 	for i := 1; i <= 3; i++ {
-		start, end := getShiftRangeOptimized(baseDate, i)
-		stats := getShiftStatsOptimized(start, end)
-		actualMinutes := getActualShiftMinutesOptimized(start, end, now)
+		start, end := getShiftRange(baseDate, i)
 		
+		// Debug: print shift times
+		fmt.Printf("Shift %d: Start=%v, End=%v\n", i, start, end)
+
+		runtimeMinutes := getShiftRuntime(start, end, now)
+		actualMinutes := getActualShiftMinutes(start, end, now)
+		
+		// Debug: print calculations
+		fmt.Printf("Shift %d: Runtime=%d, Actual=%d\n", i, runtimeMinutes, actualMinutes)
+
 		uptime := 0.0
 		if actualMinutes > 0 {
-			uptime = float64(stats.RuntimeMinutes) / float64(actualMinutes) * 100
+			uptime = float64(runtimeMinutes) / float64(actualMinutes) * 100 // dalam persen
 		}
 
 		shifts = append(shifts, gin.H{
 			"shift":                 i,
 			"start_time":            start,
 			"end_time":              end,
-			"runtime_total_minutes": stats.RuntimeMinutes,
+			"runtime_total_minutes": runtimeMinutes,
 			"actual_shift_minutes":  actualMinutes,
 			"uptime":                uptime,
 		})
@@ -127,44 +194,62 @@ func UptimeStartMesinRealtimeOptimized(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"date":          baseDate.Format("2006-01-02"),
-		"current_shift": getCurrentShiftOptimized(now),
+		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
 }
 
-// Ultra-fast downtime controller
-func DowntimeStopMesinRealtimeOptimized(c *gin.Context) {
+// Controller untuk Downtime (Stoptime)
+func DowntimeStopMesinRealtime(c *gin.Context) {
 	dateParam := c.Query("date")
+
+	// Load Asia/Jakarta timezone
 	loc, _ := time.LoadLocation("Asia/Jakarta")
+	
+	// Default pakai tanggal hari ini dalam Asia/Jakarta timezone
 	baseDate := time.Now().In(loc)
 
 	if dateParam != "" {
+		// Parse date dan set ke Asia/Jakarta timezone
 		parsedDate, err := time.Parse("2006-01-02", dateParam)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
 			return
 		}
+		// Set timezone ke Asia/Jakarta
 		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
 	}
 
+	// Gunakan waktu sekarang dalam Asia/Jakarta timezone
 	now := time.Now().In(loc)
+	
+	// Debug: print current time
+	fmt.Printf("Current time (Asia/Jakarta): %v\n", now)
+	
 	var shifts []gin.H
 
 	for i := 1; i <= 3; i++ {
-		start, end := getShiftRangeOptimized(baseDate, i)
-		stats := getShiftStatsOptimized(start, end)
-		actualMinutes := getActualShiftMinutesOptimized(start, end, now)
+		start, end := getShiftRange(baseDate, i)
 		
+		// Debug: print shift times
+		fmt.Printf("Shift %d: Start=%v, End=%v\n", i, start, end)
+
+		downtimeMinutes := getShiftStoptime(start, end, now)
+		actualMinutes := getActualShiftMinutes(start, end, now)
+		
+		// Debug: print calculations
+		fmt.Printf("Shift %d: Downtime=%d, Actual=%d\n", i, downtimeMinutes, actualMinutes)
+
 		downtime := 0.0
 		if actualMinutes > 0 {
-			downtime = float64(stats.StoptimeMinutes) / float64(actualMinutes) * 100
+			downtime = float64(downtimeMinutes) / float64(actualMinutes) * 100 // dalam persen
 		}
 
 		shifts = append(shifts, gin.H{
 			"shift":                  i,
 			"start_time":             start,
 			"end_time":               end,
-			"downtime_total_minutes": stats.StoptimeMinutes,
+			"downtime_total_minutes": downtimeMinutes,
 			"actual_shift_minutes":   actualMinutes,
 			"downtime":               downtime,
 		})
@@ -172,17 +257,41 @@ func DowntimeStopMesinRealtimeOptimized(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"date":          baseDate.Format("2006-01-02"),
-		"current_shift": getCurrentShiftOptimized(now),
+		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
 }
 
-// Ultra-fast performance output controller
-func PerformanceOutputOptimized(c *gin.Context) {
+// Optimized getLatestTotalCounter (1 query saja)
+func getLatestTotalCounter(start, end, now time.Time) int64 {
+	if now.Before(start) {
+		return 0
+	}
+
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startStr := start.In(loc).Format("2006-01-02 15:04:05")
+	endStr := end.In(loc).Format("2006-01-02 15:04:05")
+
+	var latestRecord models.RetailD5
+	result := config.DB.Model(&models.RetailD5{}).
+		Where("ts >= ? AND ts <= ?", startStr, endStr).
+		Order("ts DESC").
+		Select("total_counter").
+		First(&latestRecord)
+
+	if result.Error != nil {
+		return 0
+	}
+
+	return int64(latestRecord.TotalCounter)
+}
+
+// Controller untuk Performance Output (optimized)
+func PerformanceOutput(c *gin.Context) {
 	dateParam := c.Query("date")
 	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
 
+	baseDate := time.Now().In(loc)
 	if dateParam != "" {
 		parsedDate, err := time.Parse("2006-01-02", dateParam)
 		if err != nil {
@@ -196,257 +305,32 @@ func PerformanceOutputOptimized(c *gin.Context) {
 	var shifts []gin.H
 
 	for i := 1; i <= 3; i++ {
-		start, end := getShiftRangeOptimized(baseDate, i)
-		stats := getShiftStatsOptimized(start, end)
-		actualMinutes := getActualShiftMinutesOptimized(start, end, now)
-		
-		performanceOutput := 0.0
+		start, end := getShiftRange(baseDate, i)
+
+		totalCounter := getLatestTotalCounter(start, end, now)
+		actualMinutes := getActualShiftMinutes(start, end, now)
+
 		expectedOutput := int64(0)
+		performanceOutput := 0.0
 		if actualMinutes > 0 {
 			expectedOutput = actualMinutes * 40 * 2
-			performanceOutput = float64(stats.LatestCounter) / float64(expectedOutput) * 100
+			performanceOutput = float64(totalCounter) / float64(expectedOutput) * 100
 		}
 
 		shifts = append(shifts, gin.H{
-			"shift":               i,
-			"start_time":          start,
-			"end_time":            end,
-			"total_counter":       stats.LatestCounter,
+			"shift":                i,
+			"start_time":           start,
+			"end_time":             end,
+			"total_counter":        totalCounter,
 			"actual_shift_minutes": actualMinutes,
-			"expected_output":     expectedOutput,
-			"performance_output":  performanceOutput,
+			"expected_output":      expectedOutput,
+			"performance_output":   performanceOutput,
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"date":          baseDate.Format("2006-01-02"),
-		"current_shift": getCurrentShiftOptimized(now),
-		"shifts":        shifts,
-	})
-}
-
-// Batch version - process semua shift dalam 1 query
-func AllShiftsStatsOptimized(c *gin.Context) {
-	dateParam := c.Query("date")
-	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
-
-	if dateParam != "" {
-		parsedDate, err := time.Parse("2006-01-02", dateParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
-			return
-		}
-		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
-	}
-
-	now := time.Now().In(loc)
-	
-	// Get all day data in one query
-	dayStart := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 0, 0, 0, 0, loc)
-	dayEnd := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 23, 59, 59, 0, loc)
-	
-	dayStartStr := dayStart.Format("2006-01-02 15:04:05")
-	dayEndStr := dayEnd.Format("2006-01-02 15:04:05")
-	
-	// Super optimized single query untuk semua data shift
-	type AllShiftStats struct {
-		Shift1Runtime   int64 `gorm:"column:shift1_runtime"`
-		Shift1Stoptime  int64 `gorm:"column:shift1_stoptime"`
-		Shift1Counter   int64 `gorm:"column:shift1_counter"`
-		Shift2Runtime   int64 `gorm:"column:shift2_runtime"`
-		Shift2Stoptime  int64 `gorm:"column:shift2_stoptime"`
-		Shift2Counter   int64 `gorm:"column:shift2_counter"`
-		Shift3Runtime   int64 `gorm:"column:shift3_runtime"`
-		Shift3Stoptime  int64 `gorm:"column:shift3_stoptime"`
-		Shift3Counter   int64 `gorm:"column:shift3_counter"`
-	}
-	
-	var allStats AllShiftStats
-	
-	batchQuery := `
-		SELECT 
-			-- Shift 1 (06:00-14:00)
-			COALESCE(SUM(CASE WHEN TIME(ts) >= '06:00:00' AND TIME(ts) <= '14:00:00' AND start_mesin = 1 THEN 1 ELSE 0 END), 0) / 60 as shift1_runtime,
-			COALESCE(SUM(CASE WHEN TIME(ts) >= '06:00:00' AND TIME(ts) <= '14:00:00' AND start_mesin = 0 THEN 1 ELSE 0 END), 0) / 60 as shift1_stoptime,
-			COALESCE(MAX(CASE WHEN TIME(ts) >= '06:00:00' AND TIME(ts) <= '14:00:00' AND total_counter > 0 THEN total_counter ELSE 0 END), 0) as shift1_counter,
-			
-			-- Shift 2 (14:01-22:00)
-			COALESCE(SUM(CASE WHEN TIME(ts) >= '14:01:00' AND TIME(ts) <= '22:00:00' AND start_mesin = 1 THEN 1 ELSE 0 END), 0) / 60 as shift2_runtime,
-			COALESCE(SUM(CASE WHEN TIME(ts) >= '14:01:00' AND TIME(ts) <= '22:00:00' AND start_mesin = 0 THEN 1 ELSE 0 END), 0) / 60 as shift2_stoptime,
-			COALESCE(MAX(CASE WHEN TIME(ts) >= '14:01:00' AND TIME(ts) <= '22:00:00' AND total_counter > 0 THEN total_counter ELSE 0 END), 0) as shift2_counter,
-			
-			-- Shift 3 (22:01-05:59 next day)
-			COALESCE(SUM(CASE WHEN (TIME(ts) >= '22:01:00' OR TIME(ts) <= '05:59:59') AND start_mesin = 1 THEN 1 ELSE 0 END), 0) / 60 as shift3_runtime,
-			COALESCE(SUM(CASE WHEN (TIME(ts) >= '22:01:00' OR TIME(ts) <= '05:59:59') AND start_mesin = 0 THEN 1 ELSE 0 END), 0) / 60 as shift3_stoptime,
-			COALESCE(MAX(CASE WHEN (TIME(ts) >= '22:01:00' OR TIME(ts) <= '05:59:59') AND total_counter > 0 THEN total_counter ELSE 0 END), 0) as shift3_counter
-		FROM retail_d5 
-		WHERE ts >= ? AND ts <= ?
-	`
-	
-	config.DB.Raw(batchQuery, dayStartStr, dayEndStr).Scan(&allStats)
-	
-	return allStats
-}
-
-// Super fast uptime controller - 1 query only
-func UptimeStartMesinRealtimeFast(c *gin.Context) {
-	dateParam := c.Query("date")
-	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
-
-	if dateParam != "" {
-		parsedDate, err := time.Parse("2006-01-02", dateParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
-			return
-		}
-		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
-	}
-
-	now := time.Now().In(loc)
-	
-	// Single query untuk semua data
-	allStats := getShiftStatsOptimized(
-		time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc),
-		time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 5, 59, 59, 0, loc),
-	)
-	
-	// Extract data per shift
-	runtimeData := []int64{allStats.Shift1Runtime, allStats.Shift2Runtime, allStats.Shift3Runtime}
-	
-	var shifts []gin.H
-	for i := 1; i <= 3; i++ {
-		start, end := getShiftRangeOptimized(baseDate, i)
-		actualMinutes := getActualShiftMinutesOptimized(start, end, now)
-		
-		uptime := 0.0
-		if actualMinutes > 0 {
-			uptime = float64(runtimeData[i-1]) / float64(actualMinutes) * 100
-		}
-
-		shifts = append(shifts, gin.H{
-			"shift":                 i,
-			"start_time":            start,
-			"end_time":              end,
-			"runtime_total_minutes": runtimeData[i-1],
-			"actual_shift_minutes":  actualMinutes,
-			"uptime":                uptime,
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"date":          baseDate.Format("2006-01-02"),
-		"current_shift": getCurrentShiftOptimized(now),
-		"shifts":        shifts,
-	})
-}
-
-// Super fast downtime controller - 1 query only
-func DowntimeStopMesinRealtimeFast(c *gin.Context) {
-	dateParam := c.Query("date")
-	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
-
-	if dateParam != "" {
-		parsedDate, err := time.Parse("2006-01-02", dateParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
-			return
-		}
-		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
-	}
-
-	now := time.Now().In(loc)
-	
-	// Single query untuk semua data
-	allStats := getShiftStatsOptimized(
-		time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc),
-		time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 5, 59, 59, 0, loc),
-	)
-	
-	// Extract data per shift
-	stoptimeData := []int64{allStats.Shift1Stoptime, allStats.Shift2Stoptime, allStats.Shift3Stoptime}
-	
-	var shifts []gin.H
-	for i := 1; i <= 3; i++ {
-		start, end := getShiftRangeOptimized(baseDate, i)
-		actualMinutes := getActualShiftMinutesOptimized(start, end, now)
-		
-		downtime := 0.0
-		if actualMinutes > 0 {
-			downtime = float64(stoptimeData[i-1]) / float64(actualMinutes) * 100
-		}
-
-		shifts = append(shifts, gin.H{
-			"shift":                  i,
-			"start_time":             start,
-			"end_time":               end,
-			"downtime_total_minutes": stoptimeData[i-1],
-			"actual_shift_minutes":   actualMinutes,
-			"downtime":               downtime,
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"date":          baseDate.Format("2006-01-02"),
-		"current_shift": getCurrentShiftOptimized(now),
-		"shifts":        shifts,
-	})
-}
-
-// Super fast performance controller - 1 query only
-func PerformanceOutputFast(c *gin.Context) {
-	dateParam := c.Query("date")
-	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
-
-	if dateParam != "" {
-		parsedDate, err := time.Parse("2006-01-02", dateParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
-			return
-		}
-		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
-	}
-
-	now := time.Now().In(loc)
-	
-	// Single query untuk semua data
-	allStats := getShiftStatsOptimized(
-		time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc),
-		time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 5, 59, 59, 0, loc),
-	)
-	
-	// Extract data per shift
-	counterData := []int64{allStats.Shift1Counter, allStats.Shift2Counter, allStats.Shift3Counter}
-	
-	var shifts []gin.H
-	for i := 1; i <= 3; i++ {
-		start, end := getShiftRangeOptimized(baseDate, i)
-		actualMinutes := getActualShiftMinutesOptimized(start, end, now)
-		
-		performanceOutput := 0.0
-		expectedOutput := int64(0)
-		if actualMinutes > 0 {
-			expectedOutput = actualMinutes * 40 * 2
-			performanceOutput = float64(counterData[i-1]) / float64(expectedOutput) * 100
-		}
-
-		shifts = append(shifts, gin.H{
-			"shift":               i,
-			"start_time":          start,
-			"end_time":            end,
-			"total_counter":       counterData[i-1],
-			"actual_shift_minutes": actualMinutes,
-			"expected_output":     expectedOutput,
-			"performance_output":  performanceOutput,
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"date":          baseDate.Format("2006-01-02"),
-		"current_shift": getCurrentShiftOptimized(now),
+		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
 }
