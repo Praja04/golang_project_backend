@@ -5,8 +5,8 @@ import (
     "github.com/gin-gonic/gin"
 )
 
-func RegisterRetailRoutesD5(r *gin.Engine) {
-    api := r.Group("/api/retail-d5")
+func RegisterRetailRoutesD1(r *gin.Engine) {
+    api := r.Group("/api/retail-d1")
     {
         api.GET("/durasi/start", controllers.UptimeStartMesinRealtime)
         api.GET("/durasi/stop", controllers.DowntimeStopMesinRealtime)
