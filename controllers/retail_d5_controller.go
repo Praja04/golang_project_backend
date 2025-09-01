@@ -44,6 +44,39 @@ func getShiftRuntime(start, end, now time.Time) int64 {
 	return countSeconds / 60 // convert detik → menit
 }
 
+func getShiftStoptime(start, end, now time.Time) int64 {
+	// Jika shift belum dimulai, return 0
+	if now.Before(start) {
+		return 0
+	}
+	
+	// Konversi ke Asia/Jakarta dulu, lalu format tanpa timezone (seperti di DB)
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startLocal := start.In(loc)
+	endLocal := end.In(loc)
+	
+	// Format ke string tanpa timezone (format yang sama dengan DB)
+	startStr := startLocal.Format("2006-01-02 15:04:05")
+	endStr := endLocal.Format("2006-01-02 15:04:05")
+	
+	// Debug: print query parameters
+	fmt.Printf("Query DB - Start: %s, End: %s\n", startStr, endStr)
+	
+	var countSeconds int64
+	result := config.DB.Model(&models.RetailD5{}).
+		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 0, startStr, endStr).
+		Count(&countSeconds)
+
+	if result.Error != nil {
+		fmt.Println("DB Error:", result.Error)
+		return 0
+	}
+
+	fmt.Printf("DB Result - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
+	
+	return countSeconds / 60 // convert detik → menit
+}
+
 // Hitung actual shift minutes (sampai "now") → khusus pakai Asia/Jakarta
 func getActualShiftMinutes(start, end, now time.Time) int64 {
 	// Pastikan semua waktu dalam timezone yang sama
@@ -152,6 +185,68 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 			"runtime_total_minutes": runtimeMinutes,
 			"actual_shift_minutes":  actualMinutes,
 			"uptime":                uptime,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"date":          baseDate.Format("2006-01-02"),
+		"current_shift": getCurrentShift(now),
+		"shifts":        shifts,
+	})
+}
+
+func DowntimeStopMesinRealtime(c *gin.Context) {
+	dateParam := c.Query("date")
+
+	// Load Asia/Jakarta timezone
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	
+	// Default pakai tanggal hari ini dalam Asia/Jakarta timezone
+	baseDate := time.Now().In(loc)
+
+	if dateParam != "" {
+		// Parse date dan set ke Asia/Jakarta timezone
+		parsedDate, err := time.Parse("2006-01-02", dateParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
+			return
+		}
+		// Set timezone ke Asia/Jakarta
+		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
+	}
+
+	// Gunakan waktu sekarang dalam Asia/Jakarta timezone
+	now := time.Now().In(loc)
+	
+	// Debug: print current time
+	fmt.Printf("Current time (Asia/Jakarta): %v\n", now)
+	
+	var shifts []gin.H
+
+	for i := 1; i <= 3; i++ {
+		start, end := getShiftRange(baseDate, i)
+		
+		// Debug: print shift times
+		fmt.Printf("Shift %d: Start=%v, End=%v\n", i, start, end)
+
+		downtimeMinutes := getShiftStoptime(start, end, now)
+		actualMinutes := getActualShiftMinutes(start, end, now)
+		
+		// Debug: print calculations
+		fmt.Printf("Shift %d: Runtime=%d, Actual=%d\n", i, downtimeMinutes, actualMinutes)
+
+		downtime := 0.0
+		if actualMinutes > 0 {
+			downtime = float64(downtimeMinutes) / float64(actualMinutes) * 100 // dalam persen
+		}
+
+		shifts = append(shifts, gin.H{
+			"shift":                 i,
+			"start_time":            start,
+			"end_time":              end,
+			"downtime_total_minutes": downtimeMinutes,
+			"actual_shift_minutes":  actualMinutes,
+			"downtime":                downtime,
 		})
 	}
 
