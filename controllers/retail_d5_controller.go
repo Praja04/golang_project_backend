@@ -80,28 +80,35 @@ func getShiftStoptime(start, end, now time.Time) int64 {
 
 
 
-
-// Hitung actual shift minutes (sampai "now") → khusus pakai Asia/Jakarta
 func getActualShiftMinutes(start, end, now time.Time) int64 {
-	// Pastikan semua waktu dalam timezone yang sama
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	start = start.In(loc)
 	end = end.In(loc)
 	now = now.In(loc)
 
 	var actualMinutes int64
-	
 	if now.Before(start) {
-		// Shift belum dimulai
 		actualMinutes = 0
 	} else if now.After(end) {
-		// Shift sudah selesai, hitung full duration
 		actualMinutes = int64(end.Sub(start).Minutes())
 	} else {
-		// Shift sedang berjalan, hitung dari start sampai now
 		actualMinutes = int64(now.Sub(start).Minutes())
 	}
-	
+
+	// Tentukan batas maksimal per hari
+	weekday := start.Weekday() // time.Weekday (0=Sunday, 6=Saturday)
+	var maxMinutes int64
+	if weekday == time.Saturday {
+		maxMinutes = 300 // Sabtu = 5 jam kerja
+	} else {
+		maxMinutes = 420 // default = 7 jam kerja
+	}
+
+	// Batasi
+	if actualMinutes > maxMinutes {
+		actualMinutes = maxMinutes
+	}
+
 	return actualMinutes
 }
 
