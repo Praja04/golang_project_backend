@@ -125,26 +125,36 @@ func getShiftStoptime(model interface{}, start, end, now time.Time) int64 {
 }
 
 func getLatestTotalCounter(model interface{}, start, end, now time.Time) int64 {
-	if now.Before(start) {
-		return 0
-	}
-	loc, _ := time.LoadLocation("Asia/Jakarta")
-	startStr := start.In(loc).Format("2006-01-02 15:04:05")
-	endStr := end.In(loc).Format("2006-01-02 15:04:05")
+    if now.Before(start) {
+        return 0
+    }
+    loc, _ := time.LoadLocation("Asia/Jakarta")
+    startStr := start.In(loc).Format("2006-01-02 15:04:05")
+    endStr := end.In(loc).Format("2006-01-02 15:04:05")
 
-	var records []map[string]interface{}
-	result := config.DB.Model(model).Where("ts >= ? AND ts <= ?", startStr, endStr).Order("ts ASC").Select("ts, total_counter").Find(&records)
-	if result.Error != nil || len(records) == 0 {
-		return 0
-	}
+    var records []struct {
+        Ts          time.Time
+        TotalCounter int
+    }
 
-	var last int64
-	for _, r := range records {
-		if v, ok := r["total_counter"].(int64); ok && v > 0 {
-			last = v
-		}
-	}
-	return last
+    result := config.DB.Model(model).
+        Where("ts >= ? AND ts <= ?", startStr, endStr).
+        Order("ts ASC").
+        Select("ts, total_counter").
+        Find(&records)
+
+    if result.Error != nil || len(records) == 0 {
+        fmt.Println("DB Error / No records:", result.Error)
+        return 0
+    }
+
+    last := 0
+    for _, r := range records {
+        if r.TotalCounter > 0 {
+            last = r.TotalCounter
+        }
+    }
+    return int64(last)
 }
 
 func getLastMainSpeed(model interface{}, start, end, now time.Time) int64 {
