@@ -12,9 +12,12 @@ type ShiftInfo struct {
 	Shift     int       `json:"shift"`
 	StartTime time.Time `json:"start_time"`
 	EndTime   time.Time `json:"end_time"`
-	Runtime   int64     `json:"runtime_total_seconds"`
+	Runtime   int64     `json:"runtime_total_minutes"`
+	Actual    int64     `json:"actual_shift_minutes"`
+	Uptime    float64   `json:"uptime"`
 }
 
+// Tentukan rentang shift
 func getShiftRange(date time.Time, shift int) (time.Time, time.Time) {
 	loc := date.Location()
 	isSaturday := date.Weekday() == time.Saturday
@@ -43,6 +46,7 @@ func getShiftRange(date time.Time, shift int) (time.Time, time.Time) {
 	}
 }
 
+// Tentukan shift saat ini
 func getCurrentShift(t time.Time) int {
 	h, m := t.Hour(), t.Minute()
 	isSaturday := t.Weekday() == time.Saturday
@@ -62,68 +66,72 @@ func getCurrentShift(t time.Time) int {
 		return 3
 	}
 }
-// hitung runtime dari database (full shift)
+
+// Hitung runtime dari database (full shift)
 func getShiftRuntime(start, end time.Time) int64 {
-    var countSeconds int64
-    config.DB.Model(&models.RetailD5{}).
-        Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
-        Count(&countSeconds)
-    return countSeconds / 60
+	var countSeconds int64
+	config.DB.Model(&models.RetailD5{}).
+		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
+		Count(&countSeconds)
+	return countSeconds / 60
 }
 
-// hitung actual shift time (sampai jam now, pakai timezone Jakarta)
-// hitung actual shift time (pakai now yang sudah dikirim)
+// Hitung durasi aktual shift sampai sekarang
 func getActualShiftMinutes(start, end, now time.Time) int64 {
-    if now.Before(start) {
-        return 0
-    } else if now.After(end) {
-        return int64(end.Sub(start).Minutes())
-    }
-    return int64(now.Sub(start).Minutes())
+	if now.Before(start) {
+		// belum mulai shift
+		return 0
+	} else if now.After(end) {
+		// shift sudah selesai
+		return int64(end.Sub(start).Minutes())
+	}
+	// shift sedang berjalan → dari start sampai sekarang
+	return int64(now.Sub(start).Minutes())
 }
 
+// API controller
 func UptimeStartMesinRealtime(c *gin.Context) {
-    dateParam := c.Query("date")
-    var date time.Time
-    var err error
+	dateParam := c.Query("date")
+	var date time.Time
+	var err error
 
-    if dateParam == "" {
-        date = time.Now() // langsung pakai waktu server
-    } else {
-        date, err = time.Parse("2006-01-02", dateParam) // parse ke UTC
-        if err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
-            return
-        }
-    }
+	if dateParam == "" {
+		date = time.Now()
+	} else {
+		date, err = time.Parse("2006-01-02", dateParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
+			return
+		}
+	}
 
-    now := time.Now() // current shift juga pakai waktu server
-    var shifts []gin.H
+	now := time.Now()
+	var shifts []gin.H
 
-    for i := 1; i <= 3; i++ {
-        start, end := getShiftRange(date, i)
+	for i := 1; i <= 3; i++ {
+		start, end := getShiftRange(date, i)
 
-        runtimeMinutes := getShiftRuntime(start, end)                  // runtime full shift
-        actualMinutes := getActualShiftMinutes(start, end, now)        // actual pakai now dari luar
+		runtimeMinutes := getShiftRuntime(start, end)           // runtime dari DB
+		actualMinutes := getActualShiftMinutes(start, end, now) // aktual
 
-        uptime := 0.0
-        if actualMinutes > 0 {
-            uptime = float64(runtimeMinutes) / float64(actualMinutes)
-        }
+		uptime := 0.0
+		if actualMinutes > 0 {
+			uptime = float64(runtimeMinutes) / float64(actualMinutes)
+		}
 
-        shifts = append(shifts, gin.H{
-            "shift":                 i,
-            "start_time":            start,
-            "end_time":              end,
-            "runtime_total_minutes": runtimeMinutes,
-            "actual_shift_minutes":  actualMinutes,
-            "uptime":                uptime,
-        })
-    }
+		shifts = append(shifts, gin.H{
+			"shift":                 i,
+			"start_time":            start,
+			"end_time":              end,
+			"runtime_total_minutes": runtimeMinutes,
+			"actual_shift_minutes":  actualMinutes,
+			"uptime":                uptime,
+		})
+	}
 
-    c.JSON(http.StatusOK, gin.H{
-        "date":          date.Format("2006-01-02"),
-        "current_shift": getCurrentShift(now),
-        "shifts":        shifts,
-    })
+	c.JSON(http.StatusOK, gin.H{
+		"date":          date.Format("2006-01-02"),
+		"current_shift": getCurrentShift(now),
+		"shifts":        shifts,
+	})
 }
