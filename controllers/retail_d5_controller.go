@@ -94,13 +94,12 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 
 		// Hitung actual shift time
 		var actualMinutes int64
-		if now.After(end) {
-			actualMinutes = 420 // default 7 jam
+		if now.Before(start) {
+		actualMinutes = 0
+		} else if now.After(end) {
+			actualMinutes = int64(end.Sub(start).Minutes()) // full shift duration
 		} else {
-			actualMinutes = int64(now.Sub(start).Minutes())
-			if actualMinutes < 0 {
-				actualMinutes = 0
-			}
+			actualMinutes = int64(now.Sub(start).Minutes()) // partial shift
 		}
 
 		// Hitung uptime
