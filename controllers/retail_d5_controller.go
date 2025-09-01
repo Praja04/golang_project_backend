@@ -83,7 +83,6 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 	// default pakai Asia/Jakarta timezone
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	baseDate := time.Now().In(loc)
-	var err error
 
 	if dateParam != "" {
 		// Parse date dan set ke Asia/Jakarta timezone
