@@ -33,9 +33,11 @@ func getActualShiftMinutes(start, end, now time.Time) int64 {
 	now = now.In(loc)
 
 	if now.Before(start) {
-		return 0
+	actualMinutes = 0
 	} else if now.After(end) {
-		return int64(end.Sub(start).Minutes())
+		actualMinutes = int64(end.Sub(start).Minutes()) // full shift duration
+	} else {
+		actualMinutes = int64(now.Sub(start).Minutes()) // partial shift
 	}
 	return int64(now.Sub(start).Minutes())
 }
