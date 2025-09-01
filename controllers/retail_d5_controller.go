@@ -88,6 +88,9 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(date, i)
+		startUTC := start.In(time.UTC)
+		endUTC := end.In(time.UTC)
+
 
 		var countSeconds int64
 		config.DB.Model(&models.RetailD5{}).
