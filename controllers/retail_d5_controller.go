@@ -27,7 +27,7 @@ func getShiftRuntime(start, end time.Time) int64 {
 
 // Hitung actual shift minutes (sampai "now") → khusus pakai Asia/Jakarta
 func getActualShiftMinutes(start, end, now time.Time) int64 {
-	loc, _ := time.LoadLocation("Asia/Jakarta")
+	loc := baseDate.Location()
 	start = start.In(loc)
 	end = end.In(loc)
 	now = now.In(loc)
@@ -42,11 +42,9 @@ func getActualShiftMinutes(start, end, now time.Time) int64 {
 	return int64(now.Sub(start).Minutes())
 }
 
-// Tentukan range shift (selalu pakai Asia/Jakarta)
+// Tentukan range shift (pakai timezone dari baseDate)
 func getShiftRange(baseDate time.Time, shift int) (time.Time, time.Time) {
-	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate = baseDate.In(loc)
-
+	loc := baseDate.Location()
 	switch shift {
 	case 1:
 		start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc)
@@ -63,7 +61,6 @@ func getShiftRange(baseDate time.Time, shift int) (time.Time, time.Time) {
 	}
 	return baseDate, baseDate
 }
-
 
 // Tentukan shift sekarang
 func getCurrentShift(now time.Time) int {
