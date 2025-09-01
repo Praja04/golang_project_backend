@@ -64,63 +64,63 @@ func getCurrentShift(t time.Time) int {
 }
 
 func UptimeStartMesinRealtime(c *gin.Context) {
-	dateParam := c.Query("date")
-	var date time.Time
-	var err error
+    // set timezone Asia/Jakarta
+    loc, _ := time.LoadLocation("Asia/Jakarta")
 
-	if dateParam == "" {
-		date = time.Now()
-	} else {
-		date, err = time.Parse("2006-01-02", dateParam)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
-			return
-		}
-	}
+    dateParam := c.Query("date")
+    var date time.Time
+    var err error
 
-	var shifts []gin.H
-	now := time.Now()
+    if dateParam == "" {
+        date = time.Now().In(loc)
+    } else {
+        date, err = time.ParseInLocation("2006-01-02", dateParam, loc)
+        if err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
+            return
+        }
+    }
 
-	for i := 1; i <= 3; i++ {
-		start, end := getShiftRange(date, i)
+    var shifts []gin.H
+    now := time.Now().In(loc)  // <- penting, samakan timezone
 
-		var countSeconds int64
-		config.DB.Model(&models.RetailD5{}).
-			Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
-			Count(&countSeconds)
+    for i := 1; i <= 3; i++ {
+        start, end := getShiftRange(date, i)
 
-		// Konversi runtime ke menit
-		runtimeMinutes := countSeconds / 60
+        var countSeconds int64
+        config.DB.Model(&models.RetailD5{}).
+            Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
+            Count(&countSeconds)
 
-		// Hitung actual shift time
-		var actualMinutes int64
-		if now.Before(start) {
-	actualMinutes = 0
-} else if now.After(end) {
-	actualMinutes = int64(end.Sub(start).Minutes()) // full shift duration
-} else {
-	actualMinutes = int64(now.Sub(start).Minutes()) // partial shift
-}
+        runtimeMinutes := countSeconds / 60
 
-		// Hitung uptime
-		uptime := 0.0
-		if actualMinutes > 0 {
-			uptime = float64(runtimeMinutes) / float64(actualMinutes)
-		}
+        var actualMinutes int64
+        if now.Before(start) {
+            actualMinutes = 0
+        } else if now.After(end) {
+            actualMinutes = int64(end.Sub(start).Minutes())
+        } else {
+            actualMinutes = int64(now.Sub(start).Minutes())
+        }
 
-		shifts = append(shifts, gin.H{
-			"shift":                  i,
-			"start_time":             start,
-			"end_time":               end,
-			"runtime_total_minutes":  runtimeMinutes,
-			"actual_shift_minutes":   actualMinutes,
-			"uptime":                 uptime,
-		})
-	}
+        uptime := 0.0
+        if actualMinutes > 0 {
+            uptime = float64(runtimeMinutes) / float64(actualMinutes)
+        }
 
-	c.JSON(http.StatusOK, gin.H{
-		"date":          date.Format("2006-01-02"),
-		"current_shift": getCurrentShift(now),
-		"shifts":        shifts,
-	})
+        shifts = append(shifts, gin.H{
+            "shift":                i,
+            "start_time":           start,
+            "end_time":             end,
+            "runtime_total_minutes": runtimeMinutes,
+            "actual_shift_minutes":  actualMinutes,
+            "uptime":                uptime,
+        })
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "date":          date.Format("2006-01-02"),
+        "current_shift": getCurrentShift(now),
+        "shifts":        shifts,
+    })
 }
