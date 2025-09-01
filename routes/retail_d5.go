@@ -11,5 +11,6 @@ func RegisterRetailRoutes(r *gin.Engine) {
         api.GET("/durasi/start", controllers.UptimeStartMesinRealtime)
         api.GET("/durasi/stop", controllers.DowntimeStopMesinRealtime)
         api.GET("/performance-output", controllers.PerformanceOutput)
+        api.GET("/output-gagal-filling", controllers.OutputGagalFilling)
     }
 }

@@ -351,4 +351,83 @@ func PerformanceOutput(c *gin.Context) {
 		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
+
+	// Ambil main_speed terakhir dalam shift
+func getLastMainSpeed(start, end, now time.Time) int64 {
+	if now.Before(start) {
+		return 0
+	}
+
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startStr := start.In(loc).Format("2006-01-02 15:04:05")
+	endStr := end.In(loc).Format("2006-01-02 15:04:05")
+
+	var record models.RetailD5
+	result := config.DB.Model(&models.RetailD5{}).
+		Where("ts >= ? AND ts <= ?", startStr, endStr).
+		Order("ts DESC").
+		Select("main_speed").
+		First(&record)
+
+	if result.Error != nil {
+		return 0
+	}
+
+	return int64(record.MainSpeed)
+}
+
+// Controller untuk Output Gagal Filling
+func OutputGagalFilling(c *gin.Context) {
+	dateParam := c.Query("date")
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+
+	baseDate := time.Now().In(loc)
+	if dateParam != "" {
+		parsedDate, err := time.Parse("2006-01-02", dateParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
+			return
+		}
+		baseDate = time.Date(parsedDate.Year(), parsedDate.Month(), parsedDate.Day(), 0, 0, 0, 0, loc)
+	}
+
+	now := time.Now().In(loc)
+	var shifts []gin.H
+
+	for i := 1; i <= 3; i++ {
+		start, end := getShiftRange(baseDate, i)
+
+		totalCounter := getLatestTotalCounter(start, end, now)
+		runtimeMinutes := getShiftRuntime(start, end, now) // akumulasi start_mesin = 1 dalam menit
+		mainSpeed := getLastMainSpeed(start, end, now)
+
+		var goodFilling, gagalFilling float64
+		if runtimeMinutes > 0 && mainSpeed > 0 {
+			denom := float64(runtimeMinutes) * float64(mainSpeed) * 2
+			goodFilling = (float64(totalCounter) / denom) * 100
+			if goodFilling > 100 {
+				goodFilling = 100 // jangan lebih dari 100%
+			}
+			gagalFilling = 100 - goodFilling
+		}
+
+		shifts = append(shifts, gin.H{
+			"shift":          i,
+			"start_time":     start,
+			"end_time":       end,
+			"total_counter":  totalCounter,
+			"runtime_minutes": runtimeMinutes,
+			"main_speed":     mainSpeed,
+			"good_filling":   goodFilling,
+			"gagal_filling":  gagalFilling,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"date":          baseDate.Format("2006-01-02"),
+		"current_shift": getCurrentShift(now),
+		"shifts":        shifts,
+	})
+}
+
 }
