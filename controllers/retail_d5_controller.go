@@ -272,19 +272,30 @@ func getLatestTotalCounter(start, end, now time.Time) int64 {
 	startStr := start.In(loc).Format("2006-01-02 15:04:05")
 	endStr := end.In(loc).Format("2006-01-02 15:04:05")
 
-	var latestRecord models.RetailD5
+	var records []models.RetailD5
 	result := config.DB.Model(&models.RetailD5{}).
 		Where("ts >= ? AND ts <= ?", startStr, endStr).
-		Order("ts DESC").
-		Select("total_counter").
-		First(&latestRecord)
+		Order("ts ASC").
+		Select("ts, total_counter").
+		Find(&records)
 
-	if result.Error != nil {
+	if result.Error != nil || len(records) == 0 {
 		return 0
 	}
 
-	return int64(latestRecord.TotalCounter)
+	var lastNonZero int64 = 0
+	for _, r := range records {
+		if r.TotalCounter > 0 {
+			lastNonZero = int64(r.TotalCounter)
+		} else if r.TotalCounter == 0 && lastNonZero > 0 {
+			// begitu ketemu nol setelah ada angka >0, stop
+			break
+		}
+	}
+
+	return lastNonZero
 }
+
 
 // Controller untuk Performance Output (optimized)
 func PerformanceOutput(c *gin.Context) {
