@@ -64,22 +64,27 @@ func getCurrentShift(t time.Time) int {
 }
 
 func UptimeStartMesinRealtime(c *gin.Context) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
 	dateParam := c.Query("date")
 	var date time.Time
 	var err error
 
 	if dateParam == "" {
-		date = time.Now()
+	date = time.Now().In(loc)
 	} else {
 		date, err = time.Parse("2006-01-02", dateParam)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal salah. Gunakan YYYY-MM-DD"})
 			return
 		}
+		// Normalisasi ke zona Jakarta
+		date = time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, loc)
 	}
 
+	now := time.Now().In(loc)
+
 	var shifts []gin.H
-	now := time.Now()
+	
 
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(date, i)
@@ -97,9 +102,9 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 		if now.Before(start) {
 		actualMinutes = 0
 		} else if now.After(end) {
-			actualMinutes = int64(end.Sub(start).Minutes()) // full shift duration
+			actualMinutes = int64(end.Sub(start).Minutes())
 		} else {
-			actualMinutes = int64(now.Sub(start).Minutes()) // partial shift
+			actualMinutes = int64(now.Sub(start).Minutes())
 		}
 
 		// Hitung uptime
