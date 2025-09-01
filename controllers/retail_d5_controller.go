@@ -17,9 +17,21 @@ func getShiftRuntime(start, end, now time.Time) int64 {
 		return 0
 	}
 	
+	// Konversi ke Asia/Jakarta dulu, lalu format tanpa timezone (seperti di DB)
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startLocal := start.In(loc)
+	endLocal := end.In(loc)
+	
+	// Format ke string tanpa timezone (format yang sama dengan DB)
+	startStr := startLocal.Format("2006-01-02 15:04:05")
+	endStr := endLocal.Format("2006-01-02 15:04:05")
+	
+	// Debug: print query parameters
+	fmt.Printf("Query DB - Start: %s, End: %s\n", startStr, endStr)
+	
 	var countSeconds int64
 	result := config.DB.Model(&models.RetailD5{}).
-		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
+		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, startStr, endStr).
 		Count(&countSeconds)
 
 	if result.Error != nil {
@@ -27,6 +39,8 @@ func getShiftRuntime(start, end, now time.Time) int64 {
 		return 0
 	}
 
+	fmt.Printf("DB Result - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
+	
 	return countSeconds / 60 // convert detik → menit
 }
 
