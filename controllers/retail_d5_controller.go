@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"yourapp/config"
-	"yourapp/models"
+	"backend-golang/config"
+	"backend-golang/models"
 )
 
 // Ambil total runtime (full shift) dari DB
