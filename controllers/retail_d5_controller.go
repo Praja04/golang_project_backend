@@ -11,7 +11,12 @@ import (
 )
 
 // Ambil total runtime (full shift) dari DB
-func getShiftRuntime(start, end time.Time) int64 {
+func getShiftRuntime(start, end, now time.Time) int64 {
+	// Jika shift belum dimulai, return 0
+	if now.Before(start) {
+		return 0
+	}
+	
 	var countSeconds int64
 	result := config.DB.Model(&models.RetailD5{}).
 		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, start, end).
@@ -27,6 +32,7 @@ func getShiftRuntime(start, end time.Time) int64 {
 
 // Hitung actual shift minutes (sampai "now") → khusus pakai Asia/Jakarta
 func getActualShiftMinutes(start, end, now time.Time) int64 {
+	// Pastikan semua waktu dalam timezone yang sama
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	start = start.In(loc)
 	end = end.In(loc)
@@ -35,11 +41,14 @@ func getActualShiftMinutes(start, end, now time.Time) int64 {
 	var actualMinutes int64
 	
 	if now.Before(start) {
+		// Shift belum dimulai
 		actualMinutes = 0
 	} else if now.After(end) {
-		actualMinutes = int64(end.Sub(start).Minutes()) // full shift duration
+		// Shift sudah selesai, hitung full duration
+		actualMinutes = int64(end.Sub(start).Minutes())
 	} else {
-		actualMinutes = int64(now.Sub(start).Minutes()) // partial shift
+		// Shift sedang berjalan, hitung dari start sampai now
+		actualMinutes = int64(now.Sub(start).Minutes())
 	}
 	
 	return actualMinutes
@@ -80,8 +89,10 @@ func getCurrentShift(now time.Time) int {
 func UptimeStartMesinRealtime(c *gin.Context) {
 	dateParam := c.Query("date")
 
-	// default pakai Asia/Jakarta timezone
+	// Load Asia/Jakarta timezone
 	loc, _ := time.LoadLocation("Asia/Jakarta")
+	
+	// Default pakai tanggal hari ini dalam Asia/Jakarta timezone
 	baseDate := time.Now().In(loc)
 
 	if dateParam != "" {
@@ -97,13 +108,23 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 
 	// Gunakan waktu sekarang dalam Asia/Jakarta timezone
 	now := time.Now().In(loc)
+	
+	// Debug: print current time
+	fmt.Printf("Current time (Asia/Jakarta): %v\n", now)
+	
 	var shifts []gin.H
 
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(baseDate, i)
+		
+		// Debug: print shift times
+		fmt.Printf("Shift %d: Start=%v, End=%v\n", i, start, end)
 
-		runtimeMinutes := getShiftRuntime(start, end)
+		runtimeMinutes := getShiftRuntime(start, end, now)
 		actualMinutes := getActualShiftMinutes(start, end, now)
+		
+		// Debug: print calculations
+		fmt.Printf("Shift %d: Runtime=%d, Actual=%d\n", i, runtimeMinutes, actualMinutes)
 
 		uptime := 0.0
 		if actualMinutes > 0 {
