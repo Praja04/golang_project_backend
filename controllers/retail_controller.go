@@ -124,40 +124,8 @@ func getShiftStoptime(model interface{}, start, end, now time.Time) int64 {
 	return count / 60
 }
 
-func getLatestTotalCounter(model interface{}, start, end, now time.Time) int64 {
-    if now.Before(start) {
-        return 0
-    }
-    loc, _ := time.LoadLocation("Asia/Jakarta")
-    startStr := start.In(loc).Format("2006-01-02 15:04:05")
-    endStr := end.In(loc).Format("2006-01-02 15:04:05")
-
-    var records []struct {
-        Ts          time.Time
-        TotalCounter int
-    }
-
-    result := config.DB.Model(model).
-        Where("ts >= ? AND ts <= ?", startStr, endStr).
-        Order("ts ASC").
-        Select("ts, total_counter").
-        Find(&records)
-
-    if result.Error != nil || len(records) == 0 {
-        fmt.Println("DB Error / No records:", result.Error)
-        return 0
-    }
-
-    last := 0
-    for _, r := range records {
-        if r.TotalCounter > 0 {
-            last = r.TotalCounter
-        }
-    }
-    return int64(last)
-}
-
-func getLastMainSpeed(model interface{}, start, end, now time.Time) int64 {
+// Ambil latest total_counter
+func getLatestTotalCounterModel(model interface{}, start, end, now time.Time) int64 {
 	if now.Before(start) {
 		return 0
 	}
@@ -165,15 +133,50 @@ func getLastMainSpeed(model interface{}, start, end, now time.Time) int64 {
 	startStr := start.In(loc).Format("2006-01-02 15:04:05")
 	endStr := end.In(loc).Format("2006-01-02 15:04:05")
 
-	var record map[string]interface{}
-	result := config.DB.Model(model).Where("ts >= ? AND ts <= ?", startStr, endStr).Order("ts DESC").Select("main_speed").First(&record)
+	var records []struct {
+		TotalCounter int
+	}
+	result := config.DB.Model(model).
+		Where("ts >= ? AND ts <= ?", startStr, endStr).
+		Order("ts ASC").
+		Select("total_counter").
+		Find(&records)
+
+	if result.Error != nil || len(records) == 0 {
+		return 0
+	}
+
+	last := int64(0)
+	for _, r := range records {
+		if r.TotalCounter > 0 {
+			last = int64(r.TotalCounter)
+		}
+	}
+	return last
+}
+
+// Ambil last main_speed
+func getLastMainSpeedModel(model interface{}, start, end, now time.Time) int64 {
+	if now.Before(start) {
+		return 0
+	}
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startStr := start.In(loc).Format("2006-01-02 15:04:05")
+	endStr := end.In(loc).Format("2006-01-02 15:04:05")
+
+	var record struct {
+		MainSpeed int
+	}
+	result := config.DB.Model(model).
+		Where("ts >= ? AND ts <= ?", startStr, endStr).
+		Order("ts DESC").
+		Select("main_speed").
+		First(&record)
+
 	if result.Error != nil {
 		return 0
 	}
-	if v, ok := record["main_speed"].(int64); ok {
-		return v
-	}
-	return 0
+	return int64(record.MainSpeed)
 }
 
 // ======================= CONTROLLERS =======================
@@ -279,16 +282,19 @@ func PerformanceOutput(c *gin.Context) {
 
 	now := time.Now().In(loc)
 	var shifts []gin.H
+
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(baseDate, i)
-		total := getLatestTotalCounter(model, start, end, now)
+		total := getLatestTotalCounterModel(model, start, end, now)
 		actual := getActualShiftMinutes(start, end, now)
+
 		expected := int64(0)
 		perf := 0.0
 		if actual > 0 {
 			expected = actual * 40 * 2
 			perf = float64(total) / float64(expected) * 100
 		}
+
 		shifts = append(shifts, gin.H{
 			"shift":                i,
 			"start_time":           start,
@@ -326,11 +332,12 @@ func OutputGagalFilling(c *gin.Context) {
 
 	now := time.Now().In(loc)
 	var shifts []gin.H
+
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(baseDate, i)
-		total := getLatestTotalCounter(model, start, end, now)
-		runtime := getShiftRuntime(model, start, end, now)
-		mainSpeed := getLastMainSpeed(model, start, end, now)
+		total := getLatestTotalCounterModel(model, start, end, now)
+		runtime := getShiftRuntimeModel(model, start, end, now)
+		mainSpeed := getLastMainSpeedModel(model, start, end, now)
 
 		var good, gagal float64
 		if runtime > 0 && mainSpeed > 0 {
@@ -343,14 +350,14 @@ func OutputGagalFilling(c *gin.Context) {
 		}
 
 		shifts = append(shifts, gin.H{
-			"shift":           i,
-			"start_time":      start,
-			"end_time":        end,
-			"total_counter":   total,
+			"shift":          i,
+			"start_time":     start,
+			"end_time":       end,
+			"total_counter":  total,
 			"runtime_minutes": runtime,
-			"main_speed":      mainSpeed,
-			"good_filling":    good,
-			"gagal_filling":   gagal,
+			"main_speed":     mainSpeed,
+			"good_filling":   good,
+			"gagal_filling":  gagal,
 		})
 	}
 
