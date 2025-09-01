@@ -78,70 +78,8 @@ func getShiftStoptime(start, end, now time.Time) int64 {
 	return countSeconds / 60 // convert detik → menit
 }
 
-// Ambil data terakhir total_counter dari DB untuk shift tertentu
-// dengan logika: ambil data terakhir sebelum bernilai 0, atau data terakhir di akhir shift
-func getLatestTotalCounter(start, end, now time.Time) int64 {
-	// Jika shift belum dimulai, return 0
-	if now.Before(start) {
-		return 0
-	}
-	
-	// Konversi ke Asia/Jakarta dulu, lalu format tanpa timezone (seperti di DB)
-	loc, _ := time.LoadLocation("Asia/Jakarta")
-	startLocal := start.In(loc)
-	endLocal := end.In(loc)
-	
-	// Format ke string tanpa timezone (format yang sama dengan DB)
-	startStr := startLocal.Format("2006-01-02 15:04:05")
-	endStr := endLocal.Format("2006-01-02 15:04:05")
-	
-	// Debug: print query parameters
-	fmt.Printf("Query DB Latest Counter - Start: %s, End: %s\n", startStr, endStr)
-	
-	// Step 1: Cari apakah ada data dengan total_counter = 0 dalam shift
-	var zeroRecord models.RetailD5
-	zeroResult := config.DB.Model(&models.RetailD5{}).
-		Where("ts >= ? AND ts <= ? AND total_counter = ?", startStr, endStr, 0).
-		Order("ts ASC"). // Ambil yang pertama kali jadi 0
-		First(&zeroRecord)
 
-	if zeroResult.Error == nil {
-		// Ada data yang bernilai 0, cari data terakhir sebelum waktu tersebut yang > 0
-		fmt.Printf("Found zero counter at: %s\n", zeroRecord.Ts)
-		
-		var lastNonZeroRecord models.RetailD5
-		nonZeroResult := config.DB.Model(&models.RetailD5{}).
-			Where("ts >= ? AND ts < ? AND total_counter > ?", startStr, zeroRecord.Ts, 0).
-			Order("ts DESC").
-			First(&lastNonZeroRecord)
 
-		if nonZeroResult.Error == nil {
-			fmt.Printf("DB Result - Latest total_counter before zero: %d at %s\n", 
-				lastNonZeroRecord.TotalCounter, lastNonZeroRecord.Ts)
-			return int64(lastNonZeroRecord.TotalCounter)
-		} else {
-			// Tidak ada data sebelum nilai 0, return 0
-			fmt.Println("No non-zero data found before zero value")
-			return 0
-		}
-	} else {
-		// Tidak ada data yang bernilai 0, ambil data terakhir dalam shift yang > 0
-		var latestRecord models.RetailD5
-		result := config.DB.Model(&models.RetailD5{}).
-			Where("ts >= ? AND ts <= ? AND total_counter > ?", startStr, endStr, 0).
-			Order("ts DESC").
-			First(&latestRecord)
-
-		if result.Error != nil {
-			fmt.Println("DB Error:", result.Error)
-			return 0
-		}
-
-		fmt.Printf("DB Result - Latest total_counter (no zero found): %d at %s\n", 
-			latestRecord.TotalCounter, latestRecord.Ts)
-		return int64(latestRecord.TotalCounter)
-	}
-}
 
 // Hitung actual shift minutes (sampai "now") → khusus pakai Asia/Jakarta
 func getActualShiftMinutes(start, end, now time.Time) int64 {
@@ -324,7 +262,150 @@ func DowntimeStopMesinRealtime(c *gin.Context) {
 	})
 }
 
-// Controller untuk Performance Output - sudah bisa menerima parameter tanggal
+// Enhanced debugging function
+func debugDatabaseContent(start, end time.Time) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startLocal := start.In(loc)
+	endLocal := end.In(loc)
+	
+	startStr := startLocal.Format("2006-01-02 15:04:05")
+	endStr := endLocal.Format("2006-01-02 15:04:05")
+	
+	fmt.Printf("=== DEBUG DATABASE CONTENT ===\n")
+	fmt.Printf("Query range: %s to %s\n", startStr, endStr)
+	
+	// Cek total records di database
+	var totalCount int64
+	config.DB.Model(&models.RetailD5{}).Count(&totalCount)
+	fmt.Printf("Total records in database: %d\n", totalCount)
+	
+	// Cek records dalam range tanpa filter
+	var rangeCount int64
+	config.DB.Model(&models.RetailD5{}).
+		Where("ts >= ? AND ts <= ?", startStr, endStr).
+		Count(&rangeCount)
+	fmt.Printf("Records in exact range: %d\n", rangeCount)
+	
+	// Cek dengan LIKE pattern untuk hari ini
+	today := time.Now().In(loc).Format("2006-01-02")
+	var todayCount int64
+	config.DB.Model(&models.RetailD5{}).
+		Where("ts LIKE ?", today+"%").
+		Count(&todayCount)
+	fmt.Printf("Records for today (%s): %d\n", today, todayCount)
+	
+	// Sample beberapa record terakhir hari ini
+	var todayRecords []models.RetailD5
+	config.DB.Model(&models.RetailD5{}).
+		Where("ts LIKE ?", today+"%").
+		Order("ts DESC").
+		Limit(3).
+		Find(&todayRecords)
+	
+	fmt.Printf("Latest records today:\n")
+	for i, record := range todayRecords {
+		fmt.Printf("  [%d] Ts: %s, TotalCounter: %d, StartMesin: %d\n", 
+			i+1, record.Ts, record.TotalCounter, record.StartMesin)
+	}
+	
+	fmt.Printf("=== END DEBUG ===\n")
+}
+
+// Enhanced getLatestTotalCounter dengan debug lebih detail
+func getLatestTotalCounter(start, end, now time.Time) int64 {
+	// Jika shift belum dimulai, return 0
+	if now.Before(start) {
+		fmt.Printf("Shift belum dimulai. Now: %v, Start: %v\n", now, start)
+		return 0
+	}
+	
+	// Konversi ke Asia/Jakarta dulu, lalu format tanpa timezone (seperti di DB)
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	startLocal := start.In(loc)
+	endLocal := end.In(loc)
+	
+	// Format ke string tanpa timezone (format yang sama dengan DB)
+	startStr := startLocal.Format("2006-01-02 15:04:05")
+	endStr := endLocal.Format("2006-01-02 15:04:05")
+	
+	// Debug: print query parameters
+	fmt.Printf("Query DB Latest Counter - Start: %s, End: %s\n", startStr, endStr)
+	
+	// Enhanced debugging
+	debugDatabaseContent(start, end)
+	
+	// Try multiple query strategies
+	
+	// Strategy 1: Original logic
+	var zeroRecord models.RetailD5
+	zeroResult := config.DB.Model(&models.RetailD5{}).
+		Where("ts >= ? AND ts <= ? AND total_counter = ?", startStr, endStr, 0).
+		Order("ts ASC").
+		First(&zeroRecord)
+
+	if zeroResult.Error == nil {
+		fmt.Printf("Found zero counter at: %s\n", zeroRecord.Ts)
+		
+		var lastNonZeroRecord models.RetailD5
+		nonZeroResult := config.DB.Model(&models.RetailD5{}).
+			Where("ts >= ? AND ts < ? AND total_counter > ?", startStr, zeroRecord.Ts, 0).
+			Order("ts DESC").
+			First(&lastNonZeroRecord)
+
+		if nonZeroResult.Error == nil {
+			fmt.Printf("DB Result - Latest total_counter before zero: %d at %s\n", 
+				lastNonZeroRecord.TotalCounter, lastNonZeroRecord.Ts)
+			return int64(lastNonZeroRecord.TotalCounter)
+		} else {
+			fmt.Printf("No non-zero data found before zero value. Error: %v\n", nonZeroResult.Error)
+		}
+	}
+	
+	// Strategy 2: Ambil data terakhir > 0 dalam shift
+	var latestRecord models.RetailD5
+	result := config.DB.Model(&models.RetailD5{}).
+		Where("ts >= ? AND ts <= ? AND total_counter > ?", startStr, endStr, 0).
+		Order("ts DESC").
+		First(&latestRecord)
+
+	if result.Error == nil {
+		fmt.Printf("DB Result - Latest total_counter (>0): %d at %s\n", 
+			latestRecord.TotalCounter, latestRecord.Ts)
+		return int64(latestRecord.TotalCounter)
+	}
+	
+	// Strategy 3: Ambil data terakhir tanpa filter total_counter
+	var anyRecord models.RetailD5
+	anyResult := config.DB.Model(&models.RetailD5{}).
+		Where("ts >= ? AND ts <= ?", startStr, endStr).
+		Order("ts DESC").
+		First(&anyRecord)
+		
+	if anyResult.Error == nil {
+		fmt.Printf("DB Result - Latest record (any): %d at %s\n", 
+			anyRecord.TotalCounter, anyRecord.Ts)
+		return int64(anyRecord.TotalCounter)
+	}
+	
+	// Strategy 4: Coba dengan LIKE pattern untuk hari tersebut
+	dateStr := startLocal.Format("2006-01-02")
+	var dayRecord models.RetailD5
+	dayResult := config.DB.Model(&models.RetailD5{}).
+		Where("ts LIKE ?", dateStr+"%").
+		Order("ts DESC").
+		First(&dayRecord)
+		
+	if dayResult.Error == nil {
+		fmt.Printf("DB Result - Latest record for day: %d at %s\n", 
+			dayRecord.TotalCounter, dayRecord.Ts)
+		return int64(dayRecord.TotalCounter)
+	}
+	
+	fmt.Printf("No data found with any strategy. Last error: %v\n", dayResult.Error)
+	return 0
+}
+
+// Controller untuk Performance Output dengan enhanced debugging
 func PerformanceOutput(c *gin.Context) {
 	dateParam := c.Query("date")
 
@@ -348,8 +429,9 @@ func PerformanceOutput(c *gin.Context) {
 	// Gunakan waktu sekarang dalam Asia/Jakarta timezone
 	now := time.Now().In(loc)
 	
-	// Debug: print current time
+	// Debug: print current time dan base date
 	fmt.Printf("Current time (Asia/Jakarta): %v\n", now)
+	fmt.Printf("Base date for query: %v\n", baseDate)
 	
 	var shifts []gin.H
 
@@ -357,13 +439,17 @@ func PerformanceOutput(c *gin.Context) {
 		start, end := getShiftRange(baseDate, i)
 		
 		// Debug: print shift times
-		fmt.Printf("Shift %d: Start=%v, End=%v\n", i, start, end)
+		fmt.Printf("\n=== SHIFT %d ===\n", i)
+		fmt.Printf("Start: %v\n", start)
+		fmt.Printf("End: %v\n", end)
+		fmt.Printf("Now: %v\n", now)
 
 		totalCounter := getLatestTotalCounter(start, end, now)
 		actualMinutes := getActualShiftMinutes(start, end, now)
 		
 		// Debug: print calculations
-		fmt.Printf("Shift %d: TotalCounter=%d, Actual=%d\n", i, totalCounter, actualMinutes)
+		fmt.Printf("TotalCounter: %d\n", totalCounter)
+		fmt.Printf("ActualMinutes: %d\n", actualMinutes)
 
 		// Rumus: performance_output = total_counter / (actualshiftminutes x 40 x 2)
 		performanceOutput := 0.0
@@ -372,6 +458,9 @@ func PerformanceOutput(c *gin.Context) {
 			expectedOutput = actualMinutes * 40 * 2 // target output per menit
 			performanceOutput = float64(totalCounter) / float64(expectedOutput) * 100 // dalam persen
 		}
+
+		fmt.Printf("ExpectedOutput: %d\n", expectedOutput)
+		fmt.Printf("PerformanceOutput: %.2f%%\n", performanceOutput)
 
 		shifts = append(shifts, gin.H{
 			"shift":               i,
@@ -388,5 +477,35 @@ func PerformanceOutput(c *gin.Context) {
 		"date":          baseDate.Format("2006-01-02"),
 		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
+	})
+}
+
+// Test endpoint untuk melihat raw data
+func DebugDatabaseRaw(c *gin.Context) {
+	dateParam := c.DefaultQuery("date", time.Now().Format("2006-01-02"))
+	
+	// Sample queries untuk debugging
+	var records []models.RetailD5
+	
+	// Query 1: All records for the date
+	config.DB.Model(&models.RetailD5{}).
+		Where("ts LIKE ?", dateParam+"%").
+		Order("ts DESC").
+		Limit(10).
+		Find(&records)
+	
+	var response []gin.H
+	for _, record := range records {
+		response = append(response, gin.H{
+			"ts":            record.Ts,
+			"total_counter": record.TotalCounter,
+			"start_mesin":   record.StartMesin,
+		})
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"date":    dateParam,
+		"count":   len(records),
+		"records": response,
 	})
 }
