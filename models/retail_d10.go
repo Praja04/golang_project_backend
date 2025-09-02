@@ -9,3 +9,4 @@ type RetailD10 struct {
     TotalCounter int       `gorm:"column:total_counter"`
     MainSpeed int       `gorm:"column:main_speed"`
 }
+func (RetailD10) TableName() string  { return "retail_d10" }

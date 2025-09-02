@@ -3,15 +3,53 @@ package controllers
 import (
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"backend-golang/config"
 	"backend-golang/models"
+	"gorm.io/gorm"
 )
 
+// Helper function untuk mendapatkan model berdasarkan line
+func getModelByLine(line string) interface{} {
+	switch strings.ToLower(line) {
+	case "d1":
+		return &models.RetailD1{}
+	case "d2":
+		return &models.RetailD2{}
+	case "d3":
+		return &models.RetailD3{}
+	case "d4":
+		return &models.RetailD4{}
+	case "d5":
+		return &models.RetailD5{}
+	case "d6":
+		return &models.RetailD6{}
+	case "d7":
+		return &models.RetailD7{}
+	case "d8":
+		return &models.RetailD8{}
+	case "d9":
+		return &models.RetailD9{}
+	case "d10":
+		return &models.RetailD10{}
+	case "d14":
+		return &models.RetailD14{}
+	default:
+		return nil
+	}
+}
+
+// Helper function untuk mendapatkan table name berdasarkan line
+func getTableByLine(line string) string {
+	return fmt.Sprintf("retail_%s", strings.ToLower(line))
+}
+
 // Ambil total runtime (start_mesin = 1) dari DB
-func getShiftRuntime(start, end, now time.Time) int64 {
+func getShiftRuntime(line string, start, end, now time.Time) int64 {
 	// Jika shift belum dimulai, return 0
 	if now.Before(start) {
 		return 0
@@ -27,25 +65,31 @@ func getShiftRuntime(start, end, now time.Time) int64 {
 	endStr := endLocal.Format("2006-01-02 15:04:05")
 	
 	// Debug: print query parameters
-	fmt.Printf("Query DB Runtime - Start: %s, End: %s\n", startStr, endStr)
+	fmt.Printf("Query DB Runtime %s - Start: %s, End: %s\n", line, startStr, endStr)
 	
+	model := getModelByLine(line)
+	if model == nil {
+		fmt.Printf("Invalid line: %s\n", line)
+		return 0
+	}
+
 	var countSeconds int64
-	result := config.DB.Model(&models.RetailD5{}).
+	result := config.DB.Model(model).
 		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 1, startStr, endStr).
 		Count(&countSeconds)
 
 	if result.Error != nil {
-		fmt.Println("DB Error:", result.Error)
+		fmt.Printf("DB Error for %s: %v\n", line, result.Error)
 		return 0
 	}
 
-	fmt.Printf("DB Result Runtime - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
+	fmt.Printf("DB Result Runtime %s - Count: %d seconds (%d minutes)\n", line, countSeconds, countSeconds/60)
 	
 	return countSeconds / 60 // convert detik → menit
 }
 
 // Ambil total stoptime (start_mesin = 0) dari DB
-func getShiftStoptime(start, end, now time.Time) int64 {
+func getShiftStoptime(line string, start, end, now time.Time) int64 {
 	// Jika shift belum dimulai, return 0
 	if now.Before(start) {
 		return 0
@@ -61,24 +105,28 @@ func getShiftStoptime(start, end, now time.Time) int64 {
 	endStr := endLocal.Format("2006-01-02 15:04:05")
 	
 	// Debug: print query parameters
-	fmt.Printf("Query DB Stoptime - Start: %s, End: %s\n", startStr, endStr)
+	fmt.Printf("Query DB Stoptime %s - Start: %s, End: %s\n", line, startStr, endStr)
 	
+	model := getModelByLine(line)
+	if model == nil {
+		fmt.Printf("Invalid line: %s\n", line)
+		return 0
+	}
+
 	var countSeconds int64
-	result := config.DB.Model(&models.RetailD5{}).
+	result := config.DB.Model(model).
 		Where("start_mesin = ? AND ts >= ? AND ts <= ?", 0, startStr, endStr).
 		Count(&countSeconds)
 
 	if result.Error != nil {
-		fmt.Println("DB Error:", result.Error)
+		fmt.Printf("DB Error for %s: %v\n", line, result.Error)
 		return 0
 	}
 
-	fmt.Printf("DB Result Stoptime - Count: %d seconds (%d minutes)\n", countSeconds, countSeconds/60)
+	fmt.Printf("DB Result Stoptime %s - Count: %d seconds (%d minutes)\n", line, countSeconds, countSeconds/60)
 	
 	return countSeconds / 60 // convert detik → menit
 }
-
-
 
 func getActualShiftMinutes(start, end, now time.Time) int64 {
 	loc, _ := time.LoadLocation("Asia/Jakarta")
@@ -145,7 +193,14 @@ func getCurrentShift(now time.Time) int {
 
 // Controller untuk Uptime (Runtime)
 func UptimeStartMesinRealtime(c *gin.Context) {
+	line := c.Param("line")
 	dateParam := c.Query("date")
+
+	// Validasi line
+	if getModelByLine(line) == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Line %s tidak valid. Gunakan d1-d14", line)})
+		return
+	}
 
 	// Load Asia/Jakarta timezone
 	loc, _ := time.LoadLocation("Asia/Jakarta")
@@ -168,7 +223,7 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 	now := time.Now().In(loc)
 	
 	// Debug: print current time
-	fmt.Printf("Current time (Asia/Jakarta): %v\n", now)
+	fmt.Printf("Current time (Asia/Jakarta): %v for line %s\n", now, line)
 	
 	var shifts []gin.H
 
@@ -176,13 +231,13 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 		start, end := getShiftRange(baseDate, i)
 		
 		// Debug: print shift times
-		fmt.Printf("Shift %d: Start=%v, End=%v\n", i, start, end)
+		fmt.Printf("Shift %d for %s: Start=%v, End=%v\n", i, line, start, end)
 
-		runtimeMinutes := getShiftRuntime(start, end, now)
+		runtimeMinutes := getShiftRuntime(line, start, end, now)
 		actualMinutes := getActualShiftMinutes(start, end, now)
 		
 		// Debug: print calculations
-		fmt.Printf("Shift %d: Runtime=%d, Actual=%d\n", i, runtimeMinutes, actualMinutes)
+		fmt.Printf("Shift %d for %s: Runtime=%d, Actual=%d\n", i, line, runtimeMinutes, actualMinutes)
 
 		uptime := 0.0
 		if actualMinutes > 0 {
@@ -200,6 +255,7 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"line":          line,
 		"date":          baseDate.Format("2006-01-02"),
 		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
@@ -208,7 +264,14 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 
 // Controller untuk Downtime (Stoptime)
 func DowntimeStopMesinRealtime(c *gin.Context) {
+	line := c.Param("line")
 	dateParam := c.Query("date")
+
+	// Validasi line
+	if getModelByLine(line) == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Line %s tidak valid. Gunakan d1-d14", line)})
+		return
+	}
 
 	// Load Asia/Jakarta timezone
 	loc, _ := time.LoadLocation("Asia/Jakarta")
@@ -231,7 +294,7 @@ func DowntimeStopMesinRealtime(c *gin.Context) {
 	now := time.Now().In(loc)
 	
 	// Debug: print current time
-	fmt.Printf("Current time (Asia/Jakarta): %v\n", now)
+	fmt.Printf("Current time (Asia/Jakarta): %v for line %s\n", now, line)
 	
 	var shifts []gin.H
 
@@ -239,13 +302,13 @@ func DowntimeStopMesinRealtime(c *gin.Context) {
 		start, end := getShiftRange(baseDate, i)
 		
 		// Debug: print shift times
-		fmt.Printf("Shift %d: Start=%v, End=%v\n", i, start, end)
+		fmt.Printf("Shift %d for %s: Start=%v, End=%v\n", i, line, start, end)
 
-		downtimeMinutes := getShiftStoptime(start, end, now)
+		downtimeMinutes := getShiftStoptime(line, start, end, now)
 		actualMinutes := getActualShiftMinutes(start, end, now)
 		
 		// Debug: print calculations
-		fmt.Printf("Shift %d: Downtime=%d, Actual=%d\n", i, downtimeMinutes, actualMinutes)
+		fmt.Printf("Shift %d for %s: Downtime=%d, Actual=%d\n", i, line, downtimeMinutes, actualMinutes)
 
 		downtime := 0.0
 		if actualMinutes > 0 {
@@ -263,6 +326,7 @@ func DowntimeStopMesinRealtime(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"line":          line,
 		"date":          baseDate.Format("2006-01-02"),
 		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
@@ -270,7 +334,7 @@ func DowntimeStopMesinRealtime(c *gin.Context) {
 }
 
 // Optimized getLatestTotalCounter (1 query saja)
-func getLatestTotalCounter(start, end, now time.Time) int64 {
+func getLatestTotalCounter(line string, start, end, now time.Time) int64 {
 	if now.Before(start) {
 		return 0
 	}
@@ -279,14 +343,24 @@ func getLatestTotalCounter(start, end, now time.Time) int64 {
 	startStr := start.In(loc).Format("2006-01-02 15:04:05")
 	endStr := end.In(loc).Format("2006-01-02 15:04:05")
 
-	var records []models.RetailD5
-	result := config.DB.Model(&models.RetailD5{}).
-		Where("ts >= ? AND ts <= ?", startStr, endStr).
-		Order("ts ASC").
-		Select("ts, total_counter").
-		Find(&records)
+	model := getModelByLine(line)
+	if model == nil {
+		return 0
+	}
+
+	// Menggunakan raw SQL query karena kita perlu interface{} untuk hasil yang dinamis
+	var records []struct {
+		Ts           time.Time `json:"ts"`
+		TotalCounter int       `json:"total_counter"`
+	}
+
+	tableName := getTableByLine(line)
+	query := fmt.Sprintf("SELECT ts, total_counter FROM %s WHERE ts >= ? AND ts <= ? ORDER BY ts ASC", tableName)
+	
+	result := config.DB.Raw(query, startStr, endStr).Scan(&records)
 
 	if result.Error != nil || len(records) == 0 {
+		fmt.Printf("Error or no records for %s: %v\n", line, result.Error)
 		return 0
 	}
 
@@ -300,13 +374,21 @@ func getLatestTotalCounter(start, end, now time.Time) int64 {
 		}
 	}
 
+	fmt.Printf("Latest total counter for %s: %d\n", line, lastNonZero)
 	return lastNonZero
 }
 
-
 // Controller untuk Performance Output (optimized)
 func PerformanceOutput(c *gin.Context) {
+	line := c.Param("line")
 	dateParam := c.Query("date")
+
+	// Validasi line
+	if getModelByLine(line) == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Line %s tidak valid. Gunakan d1-d14", line)})
+		return
+	}
+
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 
 	baseDate := time.Now().In(loc)
@@ -325,7 +407,7 @@ func PerformanceOutput(c *gin.Context) {
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(baseDate, i)
 
-		totalCounter := getLatestTotalCounter(start, end, now)
+		totalCounter := getLatestTotalCounter(line, start, end, now)
 		actualMinutes := getActualShiftMinutes(start, end, now)
 
 		expectedOutput := int64(0)
@@ -347,15 +429,15 @@ func PerformanceOutput(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
+		"line":          line,
 		"date":          baseDate.Format("2006-01-02"),
 		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
-	
 }
 
 // Ambil main_speed terakhir dalam shift
-func getLastMainSpeed(start, end, now time.Time) int64 {
+func getLastMainSpeed(line string, start, end, now time.Time) int64 {
 	if now.Before(start) {
 		return 0
 	}
@@ -364,14 +446,16 @@ func getLastMainSpeed(start, end, now time.Time) int64 {
 	startStr := start.In(loc).Format("2006-01-02 15:04:05")
 	endStr := end.In(loc).Format("2006-01-02 15:04:05")
 
-	var record models.RetailD5
-	result := config.DB.Model(&models.RetailD5{}).
-		Where("ts >= ? AND ts <= ?", startStr, endStr).
-		Order("ts DESC").
-		Select("main_speed").
-		First(&record)
+	tableName := getTableByLine(line)
+	var record struct {
+		MainSpeed int `json:"main_speed"`
+	}
+
+	query := fmt.Sprintf("SELECT main_speed FROM %s WHERE ts >= ? AND ts <= ? ORDER BY ts DESC LIMIT 1", tableName)
+	result := config.DB.Raw(query, startStr, endStr).Scan(&record)
 
 	if result.Error != nil {
+		fmt.Printf("Error getting main speed for %s: %v\n", line, result.Error)
 		return 0
 	}
 
@@ -380,7 +464,15 @@ func getLastMainSpeed(start, end, now time.Time) int64 {
 
 // Controller untuk Output Gagal Filling
 func OutputGagalFilling(c *gin.Context) {
+	line := c.Param("line")
 	dateParam := c.Query("date")
+
+	// Validasi line
+	if getModelByLine(line) == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Line %s tidak valid. Gunakan d1-d14", line)})
+		return
+	}
+
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 
 	baseDate := time.Now().In(loc)
@@ -399,9 +491,9 @@ func OutputGagalFilling(c *gin.Context) {
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(baseDate, i)
 
-		totalCounter := getLatestTotalCounter(start, end, now)
-		runtimeMinutes := getShiftRuntime(start, end, now) // akumulasi start_mesin = 1 dalam menit
-		mainSpeed := getLastMainSpeed(start, end, now)
+		totalCounter := getLatestTotalCounter(line, start, end, now)
+		runtimeMinutes := getShiftRuntime(line, start, end, now) // akumulasi start_mesin = 1 dalam menit
+		mainSpeed := getLastMainSpeed(line, start, end, now)
 
 		var goodFilling, gagalFilling float64
 		if runtimeMinutes > 0 && mainSpeed > 0 {
@@ -414,19 +506,20 @@ func OutputGagalFilling(c *gin.Context) {
 		}
 
 		shifts = append(shifts, gin.H{
-			"shift":          i,
-			"start_time":     start,
-			"end_time":       end,
-			"total_counter":  totalCounter,
+			"shift":           i,
+			"start_time":      start,
+			"end_time":        end,
+			"total_counter":   totalCounter,
 			"runtime_minutes": runtimeMinutes,
-			"main_speed":     mainSpeed,
-			"good_filling":   goodFilling,
-			"gagal_filling":  gagalFilling,
+			"main_speed":      mainSpeed,
+			"good_filling":    goodFilling,
+			"gagal_filling":   gagalFilling,
 		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"date":          baseDate.Format("2006-01-02"),
+		"line":          line,
 		"current_shift": getCurrentShift(now),
 		"shifts":        shifts,
 	})
