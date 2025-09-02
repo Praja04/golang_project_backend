@@ -6,11 +6,11 @@ import (
 )
 
 func RegisterRetailRoutes(r *gin.Engine) {
-	api := r.Group("/api/retail")
+	api := r.Group("/api/retail/5")
 	{
-		api.GET("/:line/durasi/start", controllers.UptimeStartMesinRealtime)
-		api.GET("/:line/durasi/stop", controllers.DowntimeStopMesinRealtime)
-		api.GET("/:line/performance-output", controllers.PerformanceOutput)
-		api.GET("/:line/output-gagal-filling", controllers.OutputGagalFilling)
+		api.GET("/durasi/start", controllers.UptimeStartMesinRealtime)
+		api.GET("/durasi/stop", controllers.DowntimeStopMesinRealtime)
+		api.GET("/performance-output", controllers.PerformanceOutput)
+		api.GET("/output-gagal-filling", controllers.OutputGagalFilling)
 	}
 }
