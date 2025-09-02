@@ -40,7 +40,20 @@ func getRetailModel(line string) interface{} {
 	}
 }
 
-// ======================= SHIFT HELPERS =======================
+// ======================= HELPER =======================
+func parseDateParam(c *gin.Context, loc *time.Location) (time.Time, error) {
+	dateParam := c.Query("date")
+	baseDate := time.Now().In(loc)
+	if dateParam != "" {
+		d, err := time.Parse("2006-01-02", dateParam)
+		if err != nil {
+			return baseDate, fmt.Errorf("format tanggal salah. Gunakan YYYY-MM-DD")
+		}
+		baseDate = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, loc)
+	}
+	return baseDate, nil
+}
+
 func getShiftRange(baseDate time.Time, shift int) (time.Time, time.Time) {
 	loc := baseDate.Location()
 	switch shift {
@@ -85,7 +98,6 @@ func getActualShiftMinutes(start, end, now time.Time) int64 {
 	} else if actual > 420 {
 		actual = 420
 	}
-
 	return actual
 }
 
@@ -124,7 +136,6 @@ func getShiftStoptime(model interface{}, start, end, now time.Time) int64 {
 	return count / 60
 }
 
-// Ambil latest total_counter
 func getLatestTotalCounterModel(model interface{}, start, end, now time.Time) int64 {
 	if now.Before(start) {
 		return 0
@@ -133,15 +144,12 @@ func getLatestTotalCounterModel(model interface{}, start, end, now time.Time) in
 	startStr := start.In(loc).Format("2006-01-02 15:04:05")
 	endStr := end.In(loc).Format("2006-01-02 15:04:05")
 
-	var records []struct {
-		TotalCounter int
-	}
+	var records []struct{ TotalCounter int }
 	result := config.DB.Model(model).
 		Where("ts >= ? AND ts <= ?", startStr, endStr).
 		Order("ts ASC").
 		Select("total_counter").
 		Find(&records)
-
 	if result.Error != nil || len(records) == 0 {
 		return 0
 	}
@@ -155,7 +163,6 @@ func getLatestTotalCounterModel(model interface{}, start, end, now time.Time) in
 	return last
 }
 
-// Ambil last main_speed
 func getLastMainSpeedModel(model interface{}, start, end, now time.Time) int64 {
 	if now.Before(start) {
 		return 0
@@ -164,15 +171,12 @@ func getLastMainSpeedModel(model interface{}, start, end, now time.Time) int64 {
 	startStr := start.In(loc).Format("2006-01-02 15:04:05")
 	endStr := end.In(loc).Format("2006-01-02 15:04:05")
 
-	var record struct {
-		MainSpeed int
-	}
+	var record struct{ MainSpeed int }
 	result := config.DB.Model(model).
 		Where("ts >= ? AND ts <= ?", startStr, endStr).
 		Order("ts DESC").
 		Select("main_speed").
 		First(&record)
-
 	if result.Error != nil {
 		return 0
 	}
@@ -190,11 +194,10 @@ func UptimeStartMesinRealtime(c *gin.Context) {
 	}
 
 	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
-	if dateParam := c.Query("date"); dateParam != "" {
-		if d, err := time.Parse("2006-01-02", dateParam); err == nil {
-			baseDate = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, loc)
-		}
+	baseDate, err := parseDateParam(c, loc)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	now := time.Now().In(loc)
@@ -234,10 +237,14 @@ func DowntimeStopMesinRealtime(c *gin.Context) {
 	}
 
 	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
+	baseDate, err := parseDateParam(c, loc)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	now := time.Now().In(loc)
 	var shifts []gin.H
-
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(baseDate, i)
 		downtime := getShiftStoptime(model, start, end, now)
@@ -273,28 +280,24 @@ func PerformanceOutput(c *gin.Context) {
 	}
 
 	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
-	if dateParam := c.Query("date"); dateParam != "" {
-		if d, err := time.Parse("2006-01-02", dateParam); err == nil {
-			baseDate = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, loc)
-		}
+	baseDate, err := parseDateParam(c, loc)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	now := time.Now().In(loc)
 	var shifts []gin.H
-
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(baseDate, i)
 		total := getLatestTotalCounterModel(model, start, end, now)
 		actual := getActualShiftMinutes(start, end, now)
-
 		expected := int64(0)
 		perf := 0.0
 		if actual > 0 {
 			expected = actual * 40 * 2
 			perf = float64(total) / float64(expected) * 100
 		}
-
 		shifts = append(shifts, gin.H{
 			"shift":                i,
 			"start_time":           start,
@@ -323,20 +326,18 @@ func OutputGagalFilling(c *gin.Context) {
 	}
 
 	loc, _ := time.LoadLocation("Asia/Jakarta")
-	baseDate := time.Now().In(loc)
-	if dateParam := c.Query("date"); dateParam != "" {
-		if d, err := time.Parse("2006-01-02", dateParam); err == nil {
-			baseDate = time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, loc)
-		}
+	baseDate, err := parseDateParam(c, loc)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	now := time.Now().In(loc)
 	var shifts []gin.H
-
 	for i := 1; i <= 3; i++ {
 		start, end := getShiftRange(baseDate, i)
 		total := getLatestTotalCounterModel(model, start, end, now)
-		runtime := getShiftRuntimeModel(model, start, end, now)
+		runtime := getShiftRuntime(model, start, end, now)
 		mainSpeed := getLastMainSpeedModel(model, start, end, now)
 
 		var good, gagal float64
@@ -350,14 +351,14 @@ func OutputGagalFilling(c *gin.Context) {
 		}
 
 		shifts = append(shifts, gin.H{
-			"shift":          i,
-			"start_time":     start,
-			"end_time":       end,
-			"total_counter":  total,
+			"shift":           i,
+			"start_time":      start,
+			"end_time":        end,
+			"total_counter":   total,
 			"runtime_minutes": runtime,
-			"main_speed":     mainSpeed,
-			"good_filling":   good,
-			"gagal_filling":  gagal,
+			"main_speed":      mainSpeed,
+			"good_filling":    good,
+			"gagal_filling":   gagal,
 		})
 	}
 
