@@ -347,7 +347,7 @@ func getLatestTotalCounter(line string, start, end, now time.Time) int64 {
 		return 0
 	}
 
-	// Menggunakan raw SQL query karena kita perlu interface{} untuk hasil yang dinamis
+	// Menggunakan raw SQL query
 	var records []struct {
 		Ts           time.Time `json:"ts"`
 		TotalCounter int       `json:"total_counter"`
@@ -363,18 +363,55 @@ func getLatestTotalCounter(line string, start, end, now time.Time) int64 {
 		return 0
 	}
 
-	var lastNonZero int64 = 0
-	for _, r := range records {
-		if r.TotalCounter > 0 {
-			lastNonZero = int64(r.TotalCounter)
-		} else if r.TotalCounter == 0 && lastNonZero > 0 {
-			// begitu ketemu nol setelah ada angka >0, stop
-			break
-		}
-	}
+	// Cek apakah kita mendekati akhir shift (1 jam terakhir)
+	// Hitung durasi shift yang sudah berlalu
+	shiftDuration := end.Sub(start)
+	elapsed := now.Sub(start)
+	isNearEndShift := elapsed >= (shiftDuration - time.Hour) // 1 jam sebelum akhir shift
+	
+	fmt.Printf("Shift analysis for %s: Duration=%v, Elapsed=%v, NearEnd=%v\n", 
+		line, shiftDuration, elapsed, isNearEndShift)
 
-	fmt.Printf("Latest total counter for %s: %d\n", line, lastNonZero)
-	return lastNonZero
+	if isNearEndShift {
+		// LOGIKA MENDEKATI AKHIR SHIFT: Ambil data sebelum 0
+		var lastBeforeZero int64 = 0
+		
+		for i := 0; i < len(records); i++ {
+			current := records[i].TotalCounter
+			
+			if current > 0 {
+				lastBeforeZero = int64(current)
+				
+				// Cek apakah data berikutnya adalah 0
+				if i+1 < len(records) && records[i+1].TotalCounter == 0 {
+					// Ini adalah data terakhir sebelum 0, gunakan ini
+					fmt.Printf("Near end shift - Found data before zero for %s: %d at %v\n", 
+						line, lastBeforeZero, records[i].Ts)
+					return lastBeforeZero
+				}
+			}
+		}
+		
+		// Jika tidak ada pola "sebelum 0", ambil yang terakhir > 0
+		fmt.Printf("Near end shift - Using last non-zero for %s: %d\n", line, lastBeforeZero)
+		return lastBeforeZero
+		
+	} else {
+		// LOGIKA AWAL SHIFT: Ambil data terakhir yang > 0 (setelah 0 juga boleh)
+		var lastNonZero int64 = 0
+		
+		// Iterasi dari belakang untuk mendapatkan yang terakhir
+		for i := len(records) - 1; i >= 0; i-- {
+			if records[i].TotalCounter > 0 {
+				lastNonZero = int64(records[i].TotalCounter)
+				fmt.Printf("Early shift - Found last non-zero for %s: %d at %v\n", 
+					line, lastNonZero, records[i].Ts)
+				break
+			}
+		}
+		
+		return lastNonZero
+	}
 }
 
 // Controller untuk Performance Output (optimized)
