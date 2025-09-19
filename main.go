@@ -27,24 +27,23 @@ func CORSMiddleware() gin.HandlerFunc {
 }
 
 func main() {
-    godotenv.Load() // load .env
-    config.ConnectDB() // connect ke DB (tanpa return value)
+    godotenv.Load()
+    config.ConnectDB()
 
     r := gin.Default()
-    
-    // Use CORS middleware
     r.Use(CORSMiddleware())
 
-    // Health check endpoint
     r.GET("/health", func(c *gin.Context) {
         c.JSON(http.StatusOK, gin.H{
-            "status":  "ok",
+            "status":  "ok", 
             "message": "Server is running",
         })
     })
 
     // Register routes
     routes.RegisterRetailRoutes(r)
+    routes.RegisterSeparatorRoutes(r) 
+    routes.RegisterPasteurRoutes(r) 
 
     log.Println("Server running on 0.0.0.0:8080")
     if err := r.Run("0.0.0.0:8080"); err != nil {
