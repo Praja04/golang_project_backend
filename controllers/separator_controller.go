@@ -511,7 +511,6 @@ func GetSeparatorStatus(c *gin.Context) {
 		"timestamp":   now,
 	})
 }
-
 func GetSeparatorSensorByShift(c *gin.Context) {
 	sqlDB, err := config.DB.DB()
 	if err != nil {
@@ -519,19 +518,21 @@ func GetSeparatorSensorByShift(c *gin.Context) {
 		return
 	}
 
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+
 	// Ambil parameter tanggal dan shift
 	dateParam := c.Query("tanggal")
 	shiftParam := c.Query("shift")
 
 	var baseDate time.Time
 	if dateParam != "" {
-		baseDate, err = time.Parse("2006-01-02", dateParam)
+		baseDate, err = time.ParseInLocation("2006-01-02", dateParam, loc)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Format tanggal harus YYYY-MM-DD"})
 			return
 		}
 	} else {
-		baseDate = time.Now()
+		baseDate = time.Now().In(loc)
 	}
 
 	// Tentukan shift aktif jika tidak ada parameter shift
@@ -543,16 +544,15 @@ func GetSeparatorSensorByShift(c *gin.Context) {
 			return
 		}
 	} else {
-		now := time.Now()
-		hour := now.Hour()
-		minute := now.Minute()
-		currentTime := hour*3600 + minute*60 + now.Second()
+		now := time.Now().In(loc)
+		currentTime := now.Hour()*3600 + now.Minute()*60 + now.Second()
 
-		if currentTime >= 6*3600 && currentTime <= 14*3600 {
+		switch {
+		case currentTime >= 6*3600 && currentTime <= 14*3600:
 			shift = 1
-		} else if currentTime > 14*3600 && currentTime <= 22*3600 {
+		case currentTime > 14*3600 && currentTime <= 22*3600:
 			shift = 2
-		} else {
+		default:
 			shift = 3
 		}
 	}
