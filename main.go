@@ -1,12 +1,13 @@
 package main
 
 import (
-    "backend-golang/config"
-    "backend-golang/routes"
-    "github.com/gin-gonic/gin"
-    "github.com/joho/godotenv"
-    "log"
-    "net/http"
+	"backend-golang/config"
+	"backend-golang/routes"
+	"log"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 // CORS Middleware

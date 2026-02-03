@@ -10,7 +10,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
+// Response structure untuk average data
+type AvgResponse struct {
+	Timestamp time.Time `json:"timestamp"`
+	Average   float64   `json:"average"`
+}
 // GetLatestPasteurData -> ambil data terbaru
 func GetLatestPasteurData(c *gin.Context) {
 	var data models.SensorPasteurisasi
@@ -157,4 +161,169 @@ func GetPasteurAbnormal(c *gin.Context) {
 }
 
 
+
+// getTimeRange - Helper function untuk mendapatkan start dan end time
+func getTimeRange(c *gin.Context) (time.Time, time.Time, error) {
+	// Default: 8 jam terakhir
+	endTime := time.Now()
+	startTime := endTime.Add(-8 * time.Hour)
+
+	// Parse start_date jika ada (format: 2006-01-02 15:04:05 atau 2006-01-02T15:04:05)
+	if startStr := c.Query("start_date"); startStr != "" {
+		parsed, err := time.Parse("2006-01-02 15:04:05", startStr)
+		if err != nil {
+			// Coba format ISO 8601
+			parsed, err = time.Parse("2006-01-02T15:04:05", startStr)
+			if err != nil {
+				return time.Time{}, time.Time{}, err
+			}
+		}
+		startTime = parsed
+	}
+
+	// Parse end_date jika ada
+	if endStr := c.Query("end_date"); endStr != "" {
+		parsed, err := time.Parse("2006-01-02 15:04:05", endStr)
+		if err != nil {
+			// Coba format ISO 8601
+			parsed, err = time.Parse("2006-01-02T15:04:05", endStr)
+			if err != nil {
+				return time.Time{}, time.Time{}, err
+			}
+		}
+		endTime = parsed
+	}
+
+	return startTime, endTime, nil
+}
+
+// GetAverageFlowrate - Menampilkan rata-rata flowrate per menit
+func GetAverageFlowrate(c *gin.Context) {
+	var results []AvgResponse
+
+	// Dapatkan time range
+	startTime, endTime, err := getTimeRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Query untuk menghitung average per menit dengan filter tanggal
+	query := `
+		SELECT 
+			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
+			AVG(Flowrate) as average
+		FROM readsensors_pasteurisasi1
+		WHERE Waktu >= ? AND Waktu <= ?
+		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
+		ORDER BY timestamp ASC
+	`
+
+	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch average flowrate data",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   results,
+		"count":  len(results),
+		"filter": gin.H{
+			"start_date": startTime.Format("2006-01-02 15:04:05"),
+			"end_date":   endTime.Format("2006-01-02 15:04:05"),
+		},
+	})
+}
+
+// GetAverageSuhuHeating - Menampilkan rata-rata suhu heating per menit
+func GetAverageSuhuHeating(c *gin.Context) {
+	var results []AvgResponse
+
+	// Dapatkan time range
+	startTime, endTime, err := getTimeRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	query := `
+		SELECT 
+			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
+			AVG(SuhuHeating) as average
+		FROM readsensors_pasteurisasi1
+		WHERE Waktu >= ? AND Waktu <= ?
+		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
+		ORDER BY timestamp ASC
+	`
+
+	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch average suhu heating data",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   results,
+		"count":  len(results),
+		"filter": gin.H{
+			"start_date": startTime.Format("2006-01-02 15:04:05"),
+			"end_date":   endTime.Format("2006-01-02 15:04:05"),
+		},
+	})
+}
+
+// GetAverageSuhuHolding - Menampilkan rata-rata suhu holding per menit
+func GetAverageSuhuHolding(c *gin.Context) {
+	var results []AvgResponse
+
+	// Dapatkan time range
+	startTime, endTime, err := getTimeRange(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	query := `
+		SELECT 
+			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
+			AVG(SuhuHolding) as average
+		FROM readsensors_pasteurisasi1
+		WHERE Waktu >= ? AND Waktu <= ?
+		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
+		ORDER BY timestamp ASC
+	`
+
+	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch average suhu holding data",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"data":   results,
+		"count":  len(results),
+		"filter": gin.H{
+			"start_date": startTime.Format("2006-01-02 15:04:05"),
+			"end_date":   endTime.Format("2006-01-02 15:04:05"),
+		},
+	})
+}
 

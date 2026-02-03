@@ -162,31 +162,73 @@ func getActualShiftMinutes(start, end, now time.Time) int64 {
 // Tentukan range shift (pakai timezone dari baseDate)
 func getShiftRange(baseDate time.Time, shift int) (time.Time, time.Time) {
 	loc := baseDate.Location()
-	switch shift {
-	case 1:
-		start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc)
-		end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 0, 0, 0, loc)
-		return start, end
-	case 2:
-		start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 1, 0, 0, loc)
-		end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 0, 0, 0, loc)
-		return start, end
-	case 3:
-		start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 1, 0, 0, loc)
-		end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 5, 59, 59, 0, loc)
-		return start, end
+	weekday := baseDate.Weekday()
+	
+	// Cek apakah hari Sabtu
+	isSaturday := weekday == time.Saturday
+	
+	if isSaturday {
+		// Shift khusus untuk Sabtu (5 jam per shift)
+		switch shift {
+		case 1:
+			start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc)
+			end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 11, 0, 0, 0, loc)
+			return start, end
+		case 2:
+			start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 11, 0, 1, 0, loc)
+			end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 16, 0, 0, 0, loc)
+			return start, end
+		case 3:
+			start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 16, 0, 1, 0, loc)
+			end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 21, 0, 0, 0, loc)
+			return start, end
+		}
+	} else {
+		// Shift normal untuk hari biasa (7-8 jam per shift)
+		switch shift {
+		case 1:
+			start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 6, 0, 0, 0, loc)
+			end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 0, 0, 0, loc)
+			return start, end
+		case 2:
+			start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 14, 1, 0, 0, loc)
+			end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 0, 0, 0, loc)
+			return start, end
+		case 3:
+			start := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 22, 1, 0, 0, loc)
+			end := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day()+1, 5, 59, 59, 0, loc)
+			return start, end
+		}
 	}
+	
 	return baseDate, baseDate
 }
 
-// Tentukan shift sekarang
+// Tentukan shift sekarang (disesuaikan untuk Sabtu)
 func getCurrentShift(now time.Time) int {
 	hour, min := now.Hour(), now.Minute()
-	if hour >= 6 && (hour < 14 || (hour == 14 && min == 0)) {
-		return 1
-	} else if (hour > 14 || (hour == 14 && min >= 1)) && hour < 22 {
-		return 2
+	weekday := now.Weekday()
+	
+	if weekday == time.Saturday {
+		// Shift khusus untuk Sabtu
+		if hour >= 6 && (hour < 11 || (hour == 11 && min == 0)) {
+			return 1
+		} else if (hour > 11 || (hour == 11 && min >= 1)) && (hour < 16 || (hour == 16 && min == 0)) {
+			return 2
+		} else if (hour > 16 || (hour == 16 && min >= 1)) && hour < 21 {
+			return 3
+		}
+	} else {
+		// Shift normal untuk hari biasa
+		if hour >= 6 && (hour < 14 || (hour == 14 && min == 0)) {
+			return 1
+		} else if (hour > 14 || (hour == 14 && min >= 1)) && hour < 22 {
+			return 2
+		} else {
+			return 3
+		}
 	}
+	
 	return 3
 }
 
