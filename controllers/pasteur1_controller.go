@@ -225,19 +225,22 @@ func GetAverageFlowrate(c *gin.Context) {
 	}
 
 	// Query untuk menghitung average per menit dengan filter tanggal
-	// CONVERT_TZ untuk konversi dari UTC ke Asia/Jakarta
+	// Data di database sudah dalam timezone WIB, jadi tidak perlu CONVERT_TZ
+	// Format waktu ke string untuk memastikan MySQL menerima waktu yang tepat
+	startStr := startTime.Format("2006-01-02 15:04:05")
+	endStr := endTime.Format("2006-01-02 15:04:05")
+	
 	query := `
 		SELECT 
-			DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00') as timestamp,
+			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
 			AVG(Flowrate) as average
 		FROM readsensors_pasteurisasi1
-		WHERE CONVERT_TZ(Waktu, '+00:00', '+07:00') >= ? 
-		  AND CONVERT_TZ(Waktu, '+00:00', '+07:00') <= ?
-		GROUP BY DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00')
+		WHERE Waktu >= ? AND Waktu <= ?
+		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
 		ORDER BY timestamp ASC
 	`
 
-	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
+	if err := config.DB.Raw(query, startStr, endStr).Scan(&results).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to fetch average flowrate data",
 			"details": err.Error(),
@@ -271,18 +274,21 @@ func GetAverageSuhuHeating(c *gin.Context) {
 		return
 	}
 
+	// Format waktu ke string untuk memastikan MySQL menerima waktu yang tepat
+	startStr := startTime.Format("2006-01-02 15:04:05")
+	endStr := endTime.Format("2006-01-02 15:04:05")
+	
 	query := `
 		SELECT 
-			DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00') as timestamp,
+			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
 			AVG(SuhuHeating) as average
 		FROM readsensors_pasteurisasi1
-		WHERE CONVERT_TZ(Waktu, '+00:00', '+07:00') >= ? 
-		  AND CONVERT_TZ(Waktu, '+00:00', '+07:00') <= ?
-		GROUP BY DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00')
+		WHERE Waktu >= ? AND Waktu <= ?
+		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
 		ORDER BY timestamp ASC
 	`
 
-	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
+	if err := config.DB.Raw(query, startStr, endStr).Scan(&results).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to fetch average suhu heating data",
 			"details": err.Error(),
@@ -316,18 +322,21 @@ func GetAverageSuhuHolding(c *gin.Context) {
 		return
 	}
 
+	// Format waktu ke string untuk memastikan MySQL menerima waktu yang tepat
+	startStr := startTime.Format("2006-01-02 15:04:05")
+	endStr := endTime.Format("2006-01-02 15:04:05")
+	
 	query := `
 		SELECT 
-			DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00') as timestamp,
+			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
 			AVG(SuhuHolding) as average
 		FROM readsensors_pasteurisasi1
-		WHERE CONVERT_TZ(Waktu, '+00:00', '+07:00') >= ? 
-		  AND CONVERT_TZ(Waktu, '+00:00', '+07:00') <= ?
-		GROUP BY DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00')
+		WHERE Waktu >= ? AND Waktu <= ?
+		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
 		ORDER BY timestamp ASC
 	`
 
-	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
+	if err := config.DB.Raw(query, startStr, endStr).Scan(&results).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to fetch average suhu holding data",
 			"details": err.Error(),
