@@ -225,13 +225,15 @@ func GetAverageFlowrate(c *gin.Context) {
 	}
 
 	// Query untuk menghitung average per menit dengan filter tanggal
+	// CONVERT_TZ untuk konversi dari UTC ke Asia/Jakarta
 	query := `
 		SELECT 
-			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
+			DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00') as timestamp,
 			AVG(Flowrate) as average
 		FROM readsensors_pasteurisasi1
-		WHERE Waktu >= ? AND Waktu <= ?
-		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
+		WHERE CONVERT_TZ(Waktu, '+00:00', '+07:00') >= ? 
+		  AND CONVERT_TZ(Waktu, '+00:00', '+07:00') <= ?
+		GROUP BY DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00')
 		ORDER BY timestamp ASC
 	`
 
@@ -271,11 +273,12 @@ func GetAverageSuhuHeating(c *gin.Context) {
 
 	query := `
 		SELECT 
-			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
+			DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00') as timestamp,
 			AVG(SuhuHeating) as average
 		FROM readsensors_pasteurisasi1
-		WHERE Waktu >= ? AND Waktu <= ?
-		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
+		WHERE CONVERT_TZ(Waktu, '+00:00', '+07:00') >= ? 
+		  AND CONVERT_TZ(Waktu, '+00:00', '+07:00') <= ?
+		GROUP BY DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00')
 		ORDER BY timestamp ASC
 	`
 
@@ -315,11 +318,12 @@ func GetAverageSuhuHolding(c *gin.Context) {
 
 	query := `
 		SELECT 
-			DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00') as timestamp,
+			DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00') as timestamp,
 			AVG(SuhuHolding) as average
 		FROM readsensors_pasteurisasi1
-		WHERE Waktu >= ? AND Waktu <= ?
-		GROUP BY DATE_FORMAT(Waktu, '%Y-%m-%d %H:%i:00')
+		WHERE CONVERT_TZ(Waktu, '+00:00', '+07:00') >= ? 
+		  AND CONVERT_TZ(Waktu, '+00:00', '+07:00') <= ?
+		GROUP BY DATE_FORMAT(CONVERT_TZ(Waktu, '+00:00', '+07:00'), '%Y-%m-%d %H:%i:00')
 		ORDER BY timestamp ASC
 	`
 
