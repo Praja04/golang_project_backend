@@ -10,11 +10,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// Jakarta timezone
+var jakartaLoc *time.Location
+
+func init() {
+	var err error
+	jakartaLoc, err = time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		// Fallback ke UTC+7 jika gagal load
+		jakartaLoc = time.FixedZone("WIB", 7*60*60)
+	}
+}
+
 // Response structure untuk average data
 type AvgResponse struct {
-	Timestamp string  `json:"timestamp"`  
+	Timestamp string  `json:"timestamp"`
 	Average   float64 `json:"average"`
 }
+
 // GetLatestPasteurData -> ambil data terbaru
 func GetLatestPasteurData(c *gin.Context) {
 	var data models.SensorPasteurisasi
@@ -37,7 +51,7 @@ func GetLatestPasteurData(c *gin.Context) {
 func GetPasteurDataPerHour(c *gin.Context) {
 	tanggal := c.Query("tanggal") // format: YYYY-MM-DD
 	if tanggal == "" {
-		tanggal = time.Now().Format("2006-01-02")
+		tanggal = time.Now().In(jakartaLoc).Format("2006-01-02")
 	}
 
 	var data []models.SensorPasteurisasi
@@ -61,11 +75,12 @@ func GetPasteurDataPerHour(c *gin.Context) {
 		"data":    data,
 	})
 }
+
 // GetPasteurAbnormal -> ambil periode suhu heating/holding di luar batas
 func GetPasteurAbnormal(c *gin.Context) {
 	tanggal := c.Query("tanggal") // YYYY-MM-DD
 	if tanggal == "" {
-		tanggal = time.Now().Format("2006-01-02")
+		tanggal = time.Now().In(jakartaLoc).Format("2006-01-02")
 	}
 
 	// hasil query mentah
@@ -160,20 +175,18 @@ func GetPasteurAbnormal(c *gin.Context) {
 	})
 }
 
-
-
-// getTimeRange - Helper function untuk mendapatkan start dan end time
+// getTimeRange - Helper function untuk mendapatkan start dan end time (Asia/Jakarta)
 func getTimeRange(c *gin.Context) (time.Time, time.Time, error) {
-	// Default: 8 jam terakhir
-	endTime := time.Now()
+	// Default: 8 jam terakhir (waktu Jakarta)
+	endTime := time.Now().In(jakartaLoc)
 	startTime := endTime.Add(-8 * time.Hour)
 
 	// Parse start_date jika ada (format: 2006-01-02 15:04:05 atau 2006-01-02T15:04:05)
 	if startStr := c.Query("start_date"); startStr != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", startStr)
+		parsed, err := time.ParseInLocation("2006-01-02 15:04:05", startStr, jakartaLoc)
 		if err != nil {
 			// Coba format ISO 8601
-			parsed, err = time.Parse("2006-01-02T15:04:05", startStr)
+			parsed, err = time.ParseInLocation("2006-01-02T15:04:05", startStr, jakartaLoc)
 			if err != nil {
 				return time.Time{}, time.Time{}, err
 			}
@@ -183,10 +196,10 @@ func getTimeRange(c *gin.Context) (time.Time, time.Time, error) {
 
 	// Parse end_date jika ada
 	if endStr := c.Query("end_date"); endStr != "" {
-		parsed, err := time.Parse("2006-01-02 15:04:05", endStr)
+		parsed, err := time.ParseInLocation("2006-01-02 15:04:05", endStr, jakartaLoc)
 		if err != nil {
 			// Coba format ISO 8601
-			parsed, err = time.Parse("2006-01-02T15:04:05", endStr)
+			parsed, err = time.ParseInLocation("2006-01-02T15:04:05", endStr, jakartaLoc)
 			if err != nil {
 				return time.Time{}, time.Time{}, err
 			}
@@ -205,7 +218,7 @@ func GetAverageFlowrate(c *gin.Context) {
 	startTime, endTime, err := getTimeRange(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
+			"error":   "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
 			"details": err.Error(),
 		})
 		return
@@ -224,7 +237,7 @@ func GetAverageFlowrate(c *gin.Context) {
 
 	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch average flowrate data",
+			"error":   "Failed to fetch average flowrate data",
 			"details": err.Error(),
 		})
 		return
@@ -237,6 +250,7 @@ func GetAverageFlowrate(c *gin.Context) {
 		"filter": gin.H{
 			"start_date": startTime.Format("2006-01-02 15:04:05"),
 			"end_date":   endTime.Format("2006-01-02 15:04:05"),
+			"timezone":   "Asia/Jakarta (WIB)",
 		},
 	})
 }
@@ -249,7 +263,7 @@ func GetAverageSuhuHeating(c *gin.Context) {
 	startTime, endTime, err := getTimeRange(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
+			"error":   "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
 			"details": err.Error(),
 		})
 		return
@@ -267,7 +281,7 @@ func GetAverageSuhuHeating(c *gin.Context) {
 
 	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch average suhu heating data",
+			"error":   "Failed to fetch average suhu heating data",
 			"details": err.Error(),
 		})
 		return
@@ -280,6 +294,7 @@ func GetAverageSuhuHeating(c *gin.Context) {
 		"filter": gin.H{
 			"start_date": startTime.Format("2006-01-02 15:04:05"),
 			"end_date":   endTime.Format("2006-01-02 15:04:05"),
+			"timezone":   "Asia/Jakarta (WIB)",
 		},
 	})
 }
@@ -292,7 +307,7 @@ func GetAverageSuhuHolding(c *gin.Context) {
 	startTime, endTime, err := getTimeRange(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
+			"error":   "Invalid date format. Use: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS",
 			"details": err.Error(),
 		})
 		return
@@ -310,7 +325,7 @@ func GetAverageSuhuHolding(c *gin.Context) {
 
 	if err := config.DB.Raw(query, startTime, endTime).Scan(&results).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch average suhu holding data",
+			"error":   "Failed to fetch average suhu holding data",
 			"details": err.Error(),
 		})
 		return
@@ -323,7 +338,7 @@ func GetAverageSuhuHolding(c *gin.Context) {
 		"filter": gin.H{
 			"start_date": startTime.Format("2006-01-02 15:04:05"),
 			"end_date":   endTime.Format("2006-01-02 15:04:05"),
+			"timezone":   "Asia/Jakarta (WIB)",
 		},
 	})
 }
-
