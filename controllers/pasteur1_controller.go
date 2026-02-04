@@ -12,8 +12,8 @@ import (
 )
 // Response structure untuk average data
 type AvgResponse struct {
-	Timestamp time.Time `json:"timestamp"`
-	Average   float64   `json:"average"`
+	Timestamp string  `json:"timestamp"`  
+	Average   float64 `json:"average"`
 }
 // GetLatestPasteurData -> ambil data terbaru
 func GetLatestPasteurData(c *gin.Context) {
