@@ -39,4 +39,3 @@ Thumbs.db
 *.db
 
 # Go module cache (optional)
-go.sum
