@@ -30,11 +30,20 @@ func isWeekend(weekday time.Weekday) bool {
 	return weekday == time.Saturday || weekday == time.Sunday
 }
 
+// toWIBTime mengonversi timestamp database ke zona Asia/Jakarta tanpa pergeseran jam.
+// Karena MySQL driver membaca datetime sebagai UTC padahal nilai jamnya sudah waktu WIB asli dari PLC.
+func toWIBTime(t time.Time) time.Time {
+	if t.IsZero() {
+		return t
+	}
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), jakartaLoc)
+}
+
 // getShiftNumber mengembalikan nomor shift (1/2/3) dari sebuah timestamp.
 // Mengembalikan 0 jika di luar jam produksi (gap Sabtu/Minggu 11:00–14:00).
 // Semua pengecekan dilakukan dalam zona WIB.
 func getShiftNumber(t time.Time) int {
-	wib := t.In(jakartaLoc)
+	wib := toWIBTime(t)
 	minuteOfDay := wib.Hour()*60 + wib.Minute()
 	weekend := isWeekend(wib.Weekday())
 
@@ -244,9 +253,10 @@ func GetSummaryPasteur1(c *gin.Context) {
 	}
 
 	// ── 2. Ambil data sensor dari database ────────────────────────────────────
-	// startDate sudah dalam WIB, tambahkan 1 hari ekstra untuk Shift 3 carry-over
-	queryStart := startDate
-	queryEnd := endDate.Add(24*time.Hour + 6*time.Hour) // +30 jam untuk cover Shift 3
+	// Gunakan format string datetime MySQL langsung agar tidak terjadi pergeseran timezone
+	queryStart := startDateStr + " 00:00:00"
+	nextDay := endDate.AddDate(0, 0, 1).Format("2006-01-02")
+	queryEnd := nextDay + " 06:00:00" // +6 jam esok harinya untuk cover Shift 3
 
 	var sensors []models.SensorPasteurisasi
 	if err := config.DB.
@@ -295,8 +305,8 @@ func GetSummaryPasteur1(c *gin.Context) {
 
 	// ── 5. Kelompokkan data sensor ke bucket tanggal-shift ────────────────────
 	for _, s := range sensors {
-		wib := s.Waktu.In(jakartaLoc)
-		shiftNum := getShiftNumber(s.Waktu)
+		wib := toWIBTime(s.Waktu)
+		shiftNum := getShiftNumber(wib)
 		if shiftNum == 0 {
 			continue // di luar jam produksi (gap Sabtu/Minggu 11:00–14:00)
 		}
@@ -327,8 +337,8 @@ func GetSummaryPasteur1(c *gin.Context) {
 
 	// ── 6. Kelompokkan data divert ke bucket tanggal-shift ───────────────────
 	for _, d := range divertLogs {
-		wib := d.WaktuMulai.In(jakartaLoc)
-		shiftNum := getShiftNumber(d.WaktuMulai)
+		wib := toWIBTime(d.WaktuMulai)
+		shiftNum := getShiftNumber(wib)
 		if shiftNum == 0 {
 			continue
 		}

@@ -388,7 +388,7 @@ func GetDivertStatusPasteur1(c *gin.Context) {
 		}
 		activeEventInfo = gin.H{
 			"id":           activeID,
-			"waktu_mulai":  activeStart.In(jakartaLoc).Format("2006-01-02 15:04:05"),
+			"waktu_mulai":  toWIBTime(activeStart).Format("2006-01-02 15:04:05"),
 			"durasi_detik": durasi,
 		}
 	} else if isDivert {
@@ -401,7 +401,7 @@ func GetDivertStatusPasteur1(c *gin.Context) {
 			}
 			activeEventInfo = gin.H{
 				"id":           activeDB.ID,
-				"waktu_mulai":  activeDB.WaktuMulai.In(jakartaLoc).Format("2006-01-02 15:04:05"),
+				"waktu_mulai":  toWIBTime(activeDB.WaktuMulai).Format("2006-01-02 15:04:05"),
 				"durasi_detik": durasi,
 			}
 		}
@@ -415,7 +415,7 @@ func GetDivertStatusPasteur1(c *gin.Context) {
 		"keterangan":   keterangan,
 		"active_event": activeEventInfo,
 		"sensor_latest": gin.H{
-			"waktu":        latest.Waktu.In(jakartaLoc).Format("2006-01-02 15:04:05"),
+			"waktu":        toWIBTime(latest.Waktu).Format("2006-01-02 15:04:05"),
 			"suhu_heating": latest.SuhuHeating,
 			"suhu_holding": latest.SuhuHolding,
 			"flowrate":     latest.Flowrate,

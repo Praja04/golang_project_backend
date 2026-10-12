@@ -47,8 +47,9 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 	}
 
 	// ── 2. Query data sensor ──────────────────────────────────────────────────
-	queryStart := startDate
-	queryEnd := endDate.Add(24*time.Hour + 6*time.Hour) // +30 jam untuk cover Shift 3
+	queryStart := startDateStr + " 00:00:00"
+	nextDay := endDate.AddDate(0, 0, 1).Format("2006-01-02")
+	queryEnd := nextDay + " 06:00:00" // cover Shift 3
 
 	var sensors []models.SensorPasteurisasi
 	if err := config.DB.
@@ -66,7 +67,8 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 	// ── 3. Filter shift jika diminta ──────────────────────────────────────────
 	var filtered []models.SensorPasteurisasi
 	for _, s := range sensors {
-		shiftNum := getShiftNumber(s.Waktu)
+		wib := toWIBTime(s.Waktu)
+		shiftNum := getShiftNumber(wib)
 		if shiftNum == 0 {
 			continue // di luar jam produksi
 		}
@@ -221,8 +223,8 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 	// ── 4d. Isi data ──────────────────────────────────────────────────────────
 	for i, s := range filtered {
 		row := i + 5 // mulai dari baris 5
-		wib := s.Waktu.In(jakartaLoc)
-		shiftNum := getShiftNumber(s.Waktu)
+		wib := toWIBTime(s.Waktu)
+		shiftNum := getShiftNumber(wib)
 		weekday := wib.Weekday()
 
 		// Tentukan apakah sedang divert
