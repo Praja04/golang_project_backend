@@ -16,6 +16,9 @@ func RegisterPasteurRoutes(r *gin.Engine) {
 		api.GET("/average/suhu-heating", controllers.GetAverageSuhuHeating)
 		api.GET("/average/suhu-holding", controllers.GetAverageSuhuHolding)
 
+		// Summary Report Pasteur 1
+		api.GET("/summary", controllers.GetSummaryPasteur1)
+
 		// Divert Monitoring & Logs Pasteur 1
 		api.GET("/divert/status", controllers.GetDivertStatusPasteur1)
 		api.GET("/divert/summary", controllers.GetDivertSummaryPasteur1)
