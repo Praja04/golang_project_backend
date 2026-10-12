@@ -636,7 +636,6 @@ func DetectAndRecordDivertPasteur1(c *gin.Context) {
 	newDiverts := 0
 	var createdLogs []models.DivertLogPasteur1
 
-	now := time.Now().In(jakartaLoc)
 	for _, b := range blocks {
 		// Cek apakah sudah pernah dicatat di database untuk waktu_mulai ini
 		var count int64
@@ -669,8 +668,8 @@ func DetectAndRecordDivertPasteur1(c *gin.Context) {
 			Keterangan:   keterangan,
 			Status:       "CLOSED",
 			Count:        1,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			CreatedAt:    b.start,
+			UpdatedAt:    endTime,
 		}
 
 		if err := config.DB.Create(&logEntry).Error; err == nil {
@@ -745,7 +744,6 @@ func CreateDivertLogPasteur1(c *gin.Context) {
 			input.SuhuHeating, input.SuhuHolding, input.Flowrate)
 	}
 
-	now := time.Now().In(jakartaLoc)
 	divertLog := models.DivertLogPasteur1{
 		WaktuMulai:   waktuMulai,
 		WaktuSelesai: input.WaktuSelesai,
@@ -757,8 +755,8 @@ func CreateDivertLogPasteur1(c *gin.Context) {
 		Keterangan:   keterangan,
 		Status:       status,
 		Count:        1,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		CreatedAt:    waktuMulai,
+		UpdatedAt:    waktuMulai,
 	}
 
 	if err := config.DB.Create(&divertLog).Error; err != nil {

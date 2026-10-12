@@ -175,8 +175,6 @@ func (w *PasteurWorker) ProcessCurrentSensor() {
 
 	isDivert, triggers, keterangan := CheckDivertTriggers(&latest)
 
-	now := time.Now().In(jakartaLoc)
-
 	if isDivert {
 		if !w.inDivertState {
 			// TRANSISI: NORMAL -> DIVERT (Event baru dimulai)
@@ -194,8 +192,8 @@ func (w *PasteurWorker) ProcessCurrentSensor() {
 				Keterangan:  keterangan,
 				Status:      "ACTIVE",
 				Count:       1,
-				CreatedAt:   now,
-				UpdatedAt:   now,
+				CreatedAt:   latest.Waktu,
+				UpdatedAt:   latest.Waktu,
 			}
 
 			if err := config.DB.Create(&event).Error; err == nil {
@@ -217,7 +215,7 @@ func (w *PasteurWorker) ProcessCurrentSensor() {
 					Updates(map[string]interface{}{
 						"waktu_selesai": endTime,
 						"durasi_detik":  durasi,
-						"updated_at":    now,
+						"updated_at":    endTime,
 					})
 			}
 		}
@@ -239,7 +237,7 @@ func (w *PasteurWorker) ProcessCurrentSensor() {
 						"waktu_selesai": endTime,
 						"durasi_detik":  durasi,
 						"status":        "CLOSED",
-						"updated_at":    now,
+						"updated_at":    endTime,
 					})
 
 				log.Printf("[Pasteur 1 Worker] *** DIVERT SELESAI *** Selesai: %v | Total Durasi: %d detik | ID: %d\n",
