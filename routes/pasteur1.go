@@ -19,6 +19,9 @@ func RegisterPasteurRoutes(r *gin.Engine) {
 		// Summary Report Pasteur 1
 		api.GET("/summary", controllers.GetSummaryPasteur1)
 
+		// Export Excel Pasteur 1
+		api.GET("/export/sensor", controllers.ExportSensorPasteur1ToExcel)
+
 		// Divert Monitoring & Logs Pasteur 1
 		api.GET("/divert/status", controllers.GetDivertStatusPasteur1)
 		api.GET("/divert/summary", controllers.GetDivertSummaryPasteur1)
