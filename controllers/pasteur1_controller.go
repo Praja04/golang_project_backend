@@ -740,7 +740,7 @@ func CreateDivertLogPasteur1(c *gin.Context) {
 
 	keterangan := input.Keterangan
 	if keterangan == "" {
-		keterangan = fmt.Sprintf("Divert Pasteur 1 (Heating: %.0f, Holding: %.0f, Flowrate: %.0f)",
+		keterangan = fmt.Sprintf("Divert Pasteur 1 (Heating: %.1f, Holding: %.1f, Flowrate: %.0f)",
 			input.SuhuHeating, input.SuhuHolding, input.Flowrate)
 	}
 

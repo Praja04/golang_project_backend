@@ -12,12 +12,12 @@ import (
 )
 
 // Ambang Batas (Threshold) Sesuai Spesifikasi:
-// 1. Suhu Heating Under (< 1110) & Over (> 1230)
-// 2. Suhu Holding Under (< 1110) & Over (> 1230)
+// 1. Suhu Heating Under (< 110.0) & Over (> 123.0)
+// 2. Suhu Holding Under (< 110.0) & Over (> 123.0)
 // 3. Flowrate Over (> 7500)
 const (
-	LimitTempMin     = 1110.0
-	LimitTempMax     = 1230.0
+	LimitTempMin     = 110.0
+	LimitTempMax     = 123.0
 	LimitFlowrateMax = 7500.0
 )
 
@@ -41,22 +41,22 @@ func CheckDivertTriggers(s *models.SensorPasteurisasi) (bool, []string, string) 
 	var triggers []string
 	var details []string
 
-	// 1. Suhu Heating Under (< 1110) - hanya jika > 0 untuk menghindari sensor offline/unpowered
+	// 1. Suhu Heating Under (< 110.0) - hanya jika > 0 untuk menghindari sensor offline/unpowered
 	if s.SuhuHeating > 0 && s.SuhuHeating < LimitTempMin {
 		triggers = append(triggers, "HEATING_UNDER")
-		details = append(details, fmt.Sprintf("Suhu Heating under: %.0f (min %.0f)", s.SuhuHeating, LimitTempMin))
+		details = append(details, fmt.Sprintf("Suhu Heating under: %.1f (min %.1f)", s.SuhuHeating, LimitTempMin))
 	} else if s.SuhuHeating > LimitTempMax {
 		triggers = append(triggers, "HEATING_OVER")
-		details = append(details, fmt.Sprintf("Suhu Heating over: %.0f (max %.0f)", s.SuhuHeating, LimitTempMax))
+		details = append(details, fmt.Sprintf("Suhu Heating over: %.1f (max %.1f)", s.SuhuHeating, LimitTempMax))
 	}
 
-	// 2. Suhu Holding Under (< 1110) & Over (> 1230)
+	// 2. Suhu Holding Under (< 110.0) & Over (> 123.0)
 	if s.SuhuHolding > 0 && s.SuhuHolding < LimitTempMin {
 		triggers = append(triggers, "HOLDING_UNDER")
-		details = append(details, fmt.Sprintf("Suhu Holding under: %.0f (min %.0f)", s.SuhuHolding, LimitTempMin))
+		details = append(details, fmt.Sprintf("Suhu Holding under: %.1f (min %.1f)", s.SuhuHolding, LimitTempMin))
 	} else if s.SuhuHolding > LimitTempMax {
 		triggers = append(triggers, "HOLDING_OVER")
-		details = append(details, fmt.Sprintf("Suhu Holding over: %.0f (max %.0f)", s.SuhuHolding, LimitTempMax))
+		details = append(details, fmt.Sprintf("Suhu Holding over: %.1f (max %.1f)", s.SuhuHolding, LimitTempMax))
 	}
 
 	// 3. Flowrate Over (> 7500)

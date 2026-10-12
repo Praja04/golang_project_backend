@@ -9,6 +9,7 @@ import (
 
 	"backend-golang/config"
 	"backend-golang/models"
+	"backend-golang/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -444,15 +445,15 @@ func GetSummaryPasteur1(c *gin.Context) {
 				row.TotalDataPoint = int64(len(bucket.heating))
 				row.SuhuHeating = SumStatFloatWithPct{
 					Avg: hAvg, Min: hMin, Max: hMax,
-					PctNormal: calcPctInRange(bucket.heating, 1110, 1230),
+					PctNormal: calcPctInRange(bucket.heating, services.LimitTempMin, services.LimitTempMax),
 				}
 				row.SuhuHolding = SumStatFloatWithPct{
 					Avg: hoAvg, Min: hoMin, Max: hoMax,
-					PctNormal: calcPctInRange(bucket.holding, 1110, 1230),
+					PctNormal: calcPctInRange(bucket.holding, services.LimitTempMin, services.LimitTempMax),
 				}
 				row.Flowrate = SumStatFloatWithPct{
 					Avg: frAvg, Min: frMin, Max: frMax,
-					PctNormal: calcPctBelowMax(bucket.flowrate, 7500),
+					PctNormal: calcPctBelowMax(bucket.flowrate, services.LimitFlowrateMax),
 				}
 				row.SuhuPreheating = SumStatFloat{Avg: preAvg, Min: preMin, Max: preMax}
 				row.SuhuPrecooling = SumStatFloat{Avg: pcAvg, Min: pcMin, Max: pcMax}

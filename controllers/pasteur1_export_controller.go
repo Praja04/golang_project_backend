@@ -7,6 +7,7 @@ import (
 
 	"backend-golang/config"
 	"backend-golang/models"
+	"backend-golang/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/xuri/excelize/v2"
@@ -228,11 +229,7 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 		weekday := wib.Weekday()
 
 		// Tentukan apakah sedang divert
-		isDivert := (s.SuhuHeating > 0 && s.SuhuHeating < 1110) ||
-			s.SuhuHeating > 1230 ||
-			(s.SuhuHolding > 0 && s.SuhuHolding < 1110) ||
-			s.SuhuHolding > 1230 ||
-			s.Flowrate > 7500
+		isDivert, _, _ := services.CheckDivertTriggers(&s)
 
 		statusDivert := "Normal"
 		if isDivert {
