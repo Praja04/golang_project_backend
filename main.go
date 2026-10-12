@@ -3,8 +3,10 @@ package main
 import (
 	"backend-golang/config"
 	"backend-golang/routes"
+	"backend-golang/services"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -30,6 +32,9 @@ func CORSMiddleware() gin.HandlerFunc {
 func main() {
     godotenv.Load()
     config.ConnectDB()
+
+    // Jalankan background worker pemantau divert Pasteur 1 (interval 3 detik)
+    services.StartPasteurWorker(3 * time.Second)
 
     r := gin.Default()
     r.Use(CORSMiddleware())

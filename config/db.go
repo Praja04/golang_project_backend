@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"backend-golang/models"
+
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -30,6 +32,11 @@ func ConnectDB() {
 	})
 	if err != nil {
 		log.Fatal("Failed to connect database:", err)
+	}
+
+	// Auto migrate tabel divert_logs_pasteur1 jika belum ada
+	if err := db.AutoMigrate(&models.DivertLogPasteur1{}); err != nil {
+		log.Println("Warning: Failed to auto migrate divert_logs_pasteur1:", err)
 	}
 
 	DB = db
