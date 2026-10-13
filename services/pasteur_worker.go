@@ -14,11 +14,11 @@ import (
 // Ambang Batas (Threshold) Sesuai Spesifikasi:
 // 1. Suhu Heating Under (< 110.0) & Over (> 123.0)
 // 2. Suhu Holding Under (< 110.0) & Over (> 123.0)
-// 3. Flowrate Over (> 7500)
+// 3. Flowrate Over (> 7700)
 const (
 	LimitTempMin     = 110.0
 	LimitTempMax     = 123.0
-	LimitFlowrateMax = 7500.0
+	LimitFlowrateMax = 7700.0
 )
 
 var (
@@ -59,7 +59,7 @@ func CheckDivertTriggers(s *models.SensorPasteurisasi) (bool, []string, string) 
 		details = append(details, fmt.Sprintf("Suhu Holding over: %.1f (max %.1f)", s.SuhuHolding, LimitTempMax))
 	}
 
-	// 3. Flowrate Over (> 7500)
+	// 3. Flowrate Over (> 7700)
 	if s.Flowrate > LimitFlowrateMax {
 		triggers = append(triggers, "FLOWRATE_OVER")
 		details = append(details, fmt.Sprintf("Flowrate over: %.0f (max %.0f)", s.Flowrate, LimitFlowrateMax))
