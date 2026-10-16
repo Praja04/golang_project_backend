@@ -372,7 +372,8 @@ func GetDivertStatusPasteur1(c *gin.Context) {
 		return
 	}
 
-	isDivert, triggers, keterangan := services.CheckDivertTriggers(&latest)
+	minTemp, maxTemp := services.GetLatestTempThresholdsPasteur1()
+	isDivert, triggers, keterangan := services.CheckDivertTriggersWithLimits(&latest, minTemp, maxTemp, services.LimitFlowrateMax)
 	statusText := "NORMAL"
 	if isDivert {
 		statusText = "DIVERT"
@@ -421,10 +422,10 @@ func GetDivertStatusPasteur1(c *gin.Context) {
 			"flowrate":     latest.Flowrate,
 		},
 		"limits": gin.H{
-			"suhu_heating_min": services.LimitTempMin,
-			"suhu_heating_max": services.LimitTempMax,
-			"suhu_holding_min": services.LimitTempMin,
-			"suhu_holding_max": services.LimitTempMax,
+			"suhu_heating_min": minTemp,
+			"suhu_heating_max": maxTemp,
+			"suhu_holding_min": minTemp,
+			"suhu_holding_max": maxTemp,
 			"flowrate_max":     services.LimitFlowrateMax,
 		},
 		"timestamp": time.Now().In(jakartaLoc).Format("2006-01-02 15:04:05"),
@@ -587,8 +588,10 @@ func DetectAndRecordDivertPasteur1(c *gin.Context) {
 	var blocks []divertBlock
 	var currentBlock *divertBlock
 
+	minTemp, maxTemp := services.GetLatestTempThresholdsPasteur1()
+
 	for _, s := range sensors {
-		isDivert, triggers, detail := services.CheckDivertTriggers(&s)
+		isDivert, triggers, detail := services.CheckDivertTriggersWithLimits(&s, minTemp, maxTemp, services.LimitFlowrateMax)
 
 		if isDivert {
 			if currentBlock == nil {

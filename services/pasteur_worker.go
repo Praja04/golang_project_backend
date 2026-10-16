@@ -11,14 +11,26 @@ import (
 	"backend-golang/models"
 )
 
-// Ambang Batas (Threshold) Sesuai Spesifikasi:
+// Ambang Batas Default (Threshold Fallback):
 // 1. Suhu Heating Under (< 110.0) & Over (> 123.0)
 // 2. Suhu Holding Under (< 110.0) & Over (> 123.0)
 // 3. Flowrate Over (> 7700)
 const (
-	LimitTempMin     = 110.0
-	LimitTempMax     = 123.0
-	LimitFlowrateMax = 7700.0
+	DefaultLimitTempMin     = 110.0
+	DefaultLimitTempMax     = 123.0
+	DefaultLimitFlowrateMax = 7700.0
+)
+
+var (
+	LimitTempMin     = DefaultLimitTempMin
+	LimitTempMax     = DefaultLimitTempMax
+	LimitFlowrateMax = DefaultLimitFlowrateMax
+
+	thresholdMu        sync.RWMutex
+	cachedMinTemp      = DefaultLimitTempMin
+	cachedMaxTemp      = DefaultLimitTempMax
+	lastThresholdCheck time.Time
+	thresholdCacheTTL  = 3 * time.Second
 )
 
 var (
@@ -36,33 +48,99 @@ func initLoc() {
 	})
 }
 
-// CheckDivertTriggers memeriksa apakah suatu data sensor memenuhi kriteria divert
+// GetLatestTempThresholdsPasteur1 mengambil ambang batas min dan max suhu terbaru dari master_data_minmaxpasteur1.
+// Nilai dari tabel dibagi 10 baru menjadi ambang batas suhu (misal: 1230 -> 123.0, 1100 -> 110.0).
+func GetLatestTempThresholdsPasteur1() (float64, float64) {
+	thresholdMu.RLock()
+	if time.Since(lastThresholdCheck) < thresholdCacheTTL && !lastThresholdCheck.IsZero() {
+		minT := cachedMinTemp
+		maxT := cachedMaxTemp
+		thresholdMu.RUnlock()
+		return minT, maxT
+	}
+	thresholdMu.RUnlock()
+
+	return RefreshTempThresholdsPasteur1()
+}
+
+// RefreshTempThresholdsPasteur1 memaksa query ke database untuk memperbarui ambang batas suhu terbaru
+func RefreshTempThresholdsPasteur1() (float64, float64) {
+	thresholdMu.Lock()
+	defer thresholdMu.Unlock()
+
+	minTemp := DefaultLimitTempMin
+	maxTemp := DefaultLimitTempMax
+
+	if config.DB != nil {
+		var rows []models.MasterDataMinMaxPasteur1
+		// Ambil data terbaru diurutkan dari id DESC / created_at DESC
+		if err := config.DB.Where("parameter_name IN ?", []string{"MinSuhuPasteur", "MaxSuhuPasteur"}).
+			Order("id DESC").
+			Limit(50).
+			Find(&rows).Error; err == nil && len(rows) > 0 {
+
+			foundMin := false
+			foundMax := false
+
+			for _, r := range rows {
+				name := strings.TrimSpace(r.ParameterName)
+				if !foundMax && strings.EqualFold(name, "MaxSuhuPasteur") && r.Value > 0 {
+					maxTemp = r.Value / 10.0
+					foundMax = true
+				}
+				if !foundMin && strings.EqualFold(name, "MinSuhuPasteur") && r.Value > 0 {
+					minTemp = r.Value / 10.0
+					foundMin = true
+				}
+				if foundMin && foundMax {
+					break
+				}
+			}
+		}
+	}
+
+	cachedMinTemp = minTemp
+	cachedMaxTemp = maxTemp
+	LimitTempMin = minTemp
+	LimitTempMax = maxTemp
+	lastThresholdCheck = time.Now()
+
+	return minTemp, maxTemp
+}
+
+// CheckDivertTriggers memeriksa apakah suatu data sensor memenuhi kriteria divert dengan ambang batas terbaru
 func CheckDivertTriggers(s *models.SensorPasteurisasi) (bool, []string, string) {
+	minTemp, maxTemp := GetLatestTempThresholdsPasteur1()
+	return CheckDivertTriggersWithLimits(s, minTemp, maxTemp, LimitFlowrateMax)
+}
+
+// CheckDivertTriggersWithLimits memeriksa apakah suatu data sensor memenuhi kriteria divert berdasarkan parameter ambang batas
+func CheckDivertTriggersWithLimits(s *models.SensorPasteurisasi, minTemp, maxTemp, maxFlowrate float64) (bool, []string, string) {
 	var triggers []string
 	var details []string
 
-	// 1. Suhu Heating Under (< 110.0) - hanya jika > 0 untuk menghindari sensor offline/unpowered
-	if s.SuhuHeating > 0 && s.SuhuHeating < LimitTempMin {
+	// 1. Suhu Heating Under (< minTemp) - hanya jika > 0 untuk menghindari sensor offline/unpowered
+	if s.SuhuHeating > 0 && s.SuhuHeating < minTemp {
 		triggers = append(triggers, "HEATING_UNDER")
-		details = append(details, fmt.Sprintf("Suhu Heating under: %.1f (min %.1f)", s.SuhuHeating, LimitTempMin))
-	} else if s.SuhuHeating > LimitTempMax {
+		details = append(details, fmt.Sprintf("Suhu Heating under: %.1f (min %.1f)", s.SuhuHeating, minTemp))
+	} else if s.SuhuHeating > maxTemp {
 		triggers = append(triggers, "HEATING_OVER")
-		details = append(details, fmt.Sprintf("Suhu Heating over: %.1f (max %.1f)", s.SuhuHeating, LimitTempMax))
+		details = append(details, fmt.Sprintf("Suhu Heating over: %.1f (max %.1f)", s.SuhuHeating, maxTemp))
 	}
 
-	// 2. Suhu Holding Under (< 110.0) & Over (> 123.0)
-	if s.SuhuHolding > 0 && s.SuhuHolding < LimitTempMin {
+	// 2. Suhu Holding Under (< minTemp) & Over (> maxTemp)
+	if s.SuhuHolding > 0 && s.SuhuHolding < minTemp {
 		triggers = append(triggers, "HOLDING_UNDER")
-		details = append(details, fmt.Sprintf("Suhu Holding under: %.1f (min %.1f)", s.SuhuHolding, LimitTempMin))
-	} else if s.SuhuHolding > LimitTempMax {
+		details = append(details, fmt.Sprintf("Suhu Holding under: %.1f (min %.1f)", s.SuhuHolding, minTemp))
+	} else if s.SuhuHolding > maxTemp {
 		triggers = append(triggers, "HOLDING_OVER")
-		details = append(details, fmt.Sprintf("Suhu Holding over: %.1f (max %.1f)", s.SuhuHolding, LimitTempMax))
+		details = append(details, fmt.Sprintf("Suhu Holding over: %.1f (max %.1f)", s.SuhuHolding, maxTemp))
 	}
 
-	// 3. Flowrate Over (> 7700)
-	if s.Flowrate > LimitFlowrateMax {
+	// 3. Flowrate Over (> maxFlowrate)
+	if s.Flowrate > maxFlowrate {
 		triggers = append(triggers, "FLOWRATE_OVER")
-		details = append(details, fmt.Sprintf("Flowrate over: %.0f (max %.0f)", s.Flowrate, LimitFlowrateMax))
+		details = append(details, fmt.Sprintf("Flowrate over: %.0f (max %.0f)", s.Flowrate, maxFlowrate))
 	}
 
 	isDivert := len(triggers) > 0

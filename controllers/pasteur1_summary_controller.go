@@ -378,6 +378,7 @@ func GetSummaryPasteur1(c *gin.Context) {
 
 	// ── 7. Susun hasil per hari & per shift ───────────────────────────────────
 	var results []ShiftSummaryRow
+	minTemp, maxTemp := services.GetLatestTempThresholdsPasteur1()
 
 	for d := startDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
 		tanggalStr := d.Format("2006-01-02")
@@ -445,11 +446,11 @@ func GetSummaryPasteur1(c *gin.Context) {
 				row.TotalDataPoint = int64(len(bucket.heating))
 				row.SuhuHeating = SumStatFloatWithPct{
 					Avg: hAvg, Min: hMin, Max: hMax,
-					PctNormal: calcPctInRange(bucket.heating, services.LimitTempMin, services.LimitTempMax),
+					PctNormal: calcPctInRange(bucket.heating, minTemp, maxTemp),
 				}
 				row.SuhuHolding = SumStatFloatWithPct{
 					Avg: hoAvg, Min: hoMin, Max: hoMax,
-					PctNormal: calcPctInRange(bucket.holding, services.LimitTempMin, services.LimitTempMax),
+					PctNormal: calcPctInRange(bucket.holding, minTemp, maxTemp),
 				}
 				row.Flowrate = SumStatFloatWithPct{
 					Avg: frAvg, Min: frMin, Max: frMax,

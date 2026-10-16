@@ -222,6 +222,7 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 	f.SetRowHeight(sheet, 4, 36)
 
 	// ── 4d. Isi data ──────────────────────────────────────────────────────────
+	minTemp, maxTemp := services.GetLatestTempThresholdsPasteur1()
 	for i, s := range filtered {
 		row := i + 5 // mulai dari baris 5
 		wib := toWIBTime(s.Waktu)
@@ -229,7 +230,7 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 		weekday := wib.Weekday()
 
 		// Tentukan apakah sedang divert
-		isDivert, _, _ := services.CheckDivertTriggers(&s)
+		isDivert, _, _ := services.CheckDivertTriggersWithLimits(&s, minTemp, maxTemp, services.LimitFlowrateMax)
 
 		statusDivert := "Normal"
 		if isDivert {
