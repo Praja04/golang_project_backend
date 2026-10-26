@@ -39,6 +39,14 @@ func ConnectDB() {
 		log.Println("Warning: Failed to auto migrate divert_logs_pasteur1:", err)
 	}
 
+	// Konfigurasi Connection Pool untuk melindungi server MySQL dari beban berlebih
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(25)                  // Maksimal koneksi terbuka
+		sqlDB.SetMaxIdleConns(10)                  // Maksimal koneksi idle
+		sqlDB.SetConnMaxLifetime(5 * time.Minute)  // Daur ulang koneksi tiap 5 menit
+		sqlDB.SetConnMaxIdleTime(2 * time.Minute)  // Tutup koneksi idle setelah 2 menit
+	}
+
 	DB = db
-	log.Println("Database connected")
+	log.Println("Database connected (Connection pool configured)")
 }

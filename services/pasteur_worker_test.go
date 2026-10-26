@@ -16,59 +16,59 @@ func TestCheckDivertTriggers(t *testing.T) {
 		{
 			name: "Normal Condition",
 			sensor: models.SensorPasteurisasi{
-				SuhuHeating: 1150,
-				SuhuHolding: 1160,
+				SuhuHeating: 115.0,
+				SuhuHolding: 116.0,
 				Flowrate:    6000,
 			},
 			wantDivert:   false,
 			wantTriggers: nil,
 		},
 		{
-			name: "Heating Under (< 1110)",
+			name: "Heating Under (< 110.0)",
 			sensor: models.SensorPasteurisasi{
-				SuhuHeating: 1080,
-				SuhuHolding: 1150,
+				SuhuHeating: 108.0,
+				SuhuHolding: 115.0,
 				Flowrate:    6000,
 			},
 			wantDivert:   true,
 			wantTriggers: []string{"HEATING_UNDER"},
 		},
 		{
-			name: "Heating Over (> 1230)",
+			name: "Heating Over (> 123.0)",
 			sensor: models.SensorPasteurisasi{
-				SuhuHeating: 1250,
-				SuhuHolding: 1150,
+				SuhuHeating: 125.0,
+				SuhuHolding: 115.0,
 				Flowrate:    6000,
 			},
 			wantDivert:   true,
 			wantTriggers: []string{"HEATING_OVER"},
 		},
 		{
-			name: "Holding Under (< 1110)",
+			name: "Holding Under (< 110.0)",
 			sensor: models.SensorPasteurisasi{
-				SuhuHeating: 1150,
-				SuhuHolding: 1095,
+				SuhuHeating: 115.0,
+				SuhuHolding: 109.5,
 				Flowrate:    6000,
 			},
 			wantDivert:   true,
 			wantTriggers: []string{"HOLDING_UNDER"},
 		},
 		{
-			name: "Holding Over (> 1230)",
+			name: "Holding Over (> 123.0)",
 			sensor: models.SensorPasteurisasi{
-				SuhuHeating: 1150,
-				SuhuHolding: 1245,
+				SuhuHeating: 115.0,
+				SuhuHolding: 124.5,
 				Flowrate:    6000,
 			},
 			wantDivert:   true,
 			wantTriggers: []string{"HOLDING_OVER"},
 		},
 		{
-			name: "Flowrate Over (> 7500)",
+			name: "Flowrate Over (> 7700)",
 			sensor: models.SensorPasteurisasi{
-				SuhuHeating: 1150,
-				SuhuHolding: 1150,
-				Flowrate:    7600,
+				SuhuHeating: 115.0,
+				SuhuHolding: 115.0,
+				Flowrate:    7800,
 			},
 			wantDivert:   true,
 			wantTriggers: []string{"FLOWRATE_OVER"},
@@ -76,8 +76,8 @@ func TestCheckDivertTriggers(t *testing.T) {
 		{
 			name: "Multiple Triggers: Heating Under and Flowrate Over",
 			sensor: models.SensorPasteurisasi{
-				SuhuHeating: 1050,
-				SuhuHolding: 1150,
+				SuhuHeating: 105.0,
+				SuhuHolding: 115.0,
 				Flowrate:    7800,
 			},
 			wantDivert:   true,
@@ -114,3 +114,46 @@ func TestCheckDivertTriggers(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckDivertTriggersWithDynamicLimits(t *testing.T) {
+	// Simulasi data dari tabel master_data_minmaxpasteur1:
+	// MaxSuhuPasteur = 1230 -> 123.0
+	// MinSuhuPasteur = 1100 -> 110.0
+	maxValDB := 1230.0
+	minValDB := 1100.0
+
+	minLimit := minValDB / 10.0 // 110.0
+	maxLimit := maxValDB / 10.0 // 123.0
+	maxFlow := 7700.0
+
+	sensorNormal := models.SensorPasteurisasi{
+		SuhuHeating: 115.0,
+		SuhuHolding: 115.0,
+		Flowrate:    5000,
+	}
+	isDiv, _, _ := CheckDivertTriggersWithLimits(&sensorNormal, minLimit, maxLimit, maxFlow)
+	if isDiv {
+		t.Errorf("Expected normal, got divert")
+	}
+
+	sensorUnder := models.SensorPasteurisasi{
+		SuhuHeating: 109.9,
+		SuhuHolding: 115.0,
+		Flowrate:    5000,
+	}
+	isDiv, trigs, _ := CheckDivertTriggersWithLimits(&sensorUnder, minLimit, maxLimit, maxFlow)
+	if !isDiv || len(trigs) == 0 || trigs[0] != "HEATING_UNDER" {
+		t.Errorf("Expected HEATING_UNDER divert, got isDiv=%v, trigs=%v", isDiv, trigs)
+	}
+
+	sensorOver := models.SensorPasteurisasi{
+		SuhuHeating: 115.0,
+		SuhuHolding: 123.1,
+		Flowrate:    5000,
+	}
+	isDiv, trigs, _ = CheckDivertTriggersWithLimits(&sensorOver, minLimit, maxLimit, maxFlow)
+	if !isDiv || len(trigs) == 0 || trigs[0] != "HOLDING_OVER" {
+		t.Errorf("Expected HOLDING_OVER divert, got isDiv=%v, trigs=%v", isDiv, trigs)
+	}
+}
+

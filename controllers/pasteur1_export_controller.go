@@ -281,15 +281,17 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 		for j, col := range cols {
 			cell := fmt.Sprintf("%s%d", col, row)
 			f.SetCellValue(sheet, cell, rowData[j])
+		}
 
-			// Warna baris divert merah muda
-			if isDivert {
-				f.SetCellStyle(sheet, cell, cell, divertStyle)
-			} else if i%2 == 0 {
-				f.SetCellStyle(sheet, cell, cell, dataStyleEven)
-			} else {
-				f.SetCellStyle(sheet, cell, cell, dataStyleOdd)
-			}
+		// Optimasi performa: terapkan style 1 baris sekaligus (A-AB) bukan per sel
+		startCell := fmt.Sprintf("A%d", row)
+		endCell := fmt.Sprintf("AB%d", row)
+		if isDivert {
+			f.SetCellStyle(sheet, startCell, endCell, divertStyle)
+		} else if i%2 == 0 {
+			f.SetCellStyle(sheet, startCell, endCell, dataStyleEven)
+		} else {
+			f.SetCellStyle(sheet, startCell, endCell, dataStyleOdd)
 		}
 
 		f.SetRowHeight(sheet, row, 18)
@@ -307,7 +309,7 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 	})
 
 	// ── 4f. Tambahkan sheet 'Proses masak Pasteur' ──
-	appendSheetProsesMasakPasteur(f, startDateStr, endDateStr, shiftFilter)
+	appendSheetProsesMasakPasteur(f, sensors, startDateStr, endDateStr, shiftFilter)
 
 	// ── 5. Kirim file sebagai response download ───────────────────────────────
 	filename := fmt.Sprintf("sensor_pasteur1_%s_sd_%s.xlsx", startDateStr, endDateStr)
@@ -417,7 +419,7 @@ func tryFetchBatches(client *http.Client, targetURL string) ([]FinishedBatchItem
 	return apiResp.Data, nil
 }
 
-func appendSheetProsesMasakPasteur(f *excelize.File, startDateStr, endDateStr, shiftFilter string) {
+func appendSheetProsesMasakPasteur(f *excelize.File, allSensors []models.SensorPasteurisasi, startDateStr, endDateStr, shiftFilter string) {
 	sheet2 := "Proses masak Pasteur"
 	f.NewSheet(sheet2)
 
@@ -449,7 +451,7 @@ func appendSheetProsesMasakPasteur(f *excelize.File, startDateStr, endDateStr, s
 		},
 		Alignment: &excelize.Alignment{
 			Horizontal: "center",
-			Vertical:   "center",
+			Vertical:   "top",
 		},
 		Border: []excelize.Border{
 			{Type: "left", Color: "D9D9D9", Style: 1},
@@ -489,10 +491,10 @@ func appendSheetProsesMasakPasteur(f *excelize.File, startDateStr, endDateStr, s
 		{"D", "storage", 12},
 		{"E", "jam mulai pasteur", 18},
 		{"F", "jam selesai pasteur", 18},
-		{"G", "log suhu 1", 14},
-		{"H", "waktu suhu 1", 16},
-		{"I", "log suhu 2", 14},
-		{"J", "waktu suhu 2", 16},
+		{"G", "waktu logger", 16},
+		{"H", "suhu holding", 14},
+		{"I", "suhu heating", 14},
+		{"J", "flowrate", 14},
 	}
 
 	for _, h := range headers {
@@ -522,13 +524,27 @@ func appendSheetProsesMasakPasteur(f *excelize.File, startDateStr, endDateStr, s
 	for _, batch := range batches {
 		batchStartRow := currentRow
 
-		// Query sensor untuk rentang waktu batch ini
+		// Optimasi performa: Filter data sensor dari memori yang sudah di-load di Sheet 1 (0 extra query ke database!)
 		var sensors []models.SensorPasteurisasi
 		if batch.WaktuMulaiFull != "" && batch.WaktuSelesaiFull != "" {
-			config.DB.
-				Where("Waktu >= ? AND Waktu <= ?", batch.WaktuMulaiFull, batch.WaktuSelesaiFull).
-				Order("Waktu ASC").
-				Find(&sensors)
+			tMulai, err1 := time.ParseInLocation("2006-01-02 15:04:05", batch.WaktuMulaiFull, jakartaLoc)
+			tSelesai, err2 := time.ParseInLocation("2006-01-02 15:04:05", batch.WaktuSelesaiFull, jakartaLoc)
+			if err1 == nil && err2 == nil {
+				for _, s := range allSensors {
+					wib := toWIBTime(s.Waktu)
+					if (wib.Equal(tMulai) || wib.After(tMulai)) && (wib.Equal(tSelesai) || wib.Before(tSelesai)) {
+						sensors = append(sensors, s)
+					}
+				}
+			}
+
+			// Fallback ke database jika data sensor belum ada di memori
+			if len(sensors) == 0 && len(allSensors) == 0 {
+				config.DB.
+					Where("Waktu >= ? AND Waktu <= ?", batch.WaktuMulaiFull, batch.WaktuSelesaiFull).
+					Order("Waktu ASC").
+					Find(&sensors)
+			}
 		}
 
 		if len(sensors) == 0 {
@@ -552,10 +568,10 @@ func appendSheetProsesMasakPasteur(f *excelize.File, startDateStr, endDateStr, s
 				row := currentRow
 				wib := toWIBTime(s.Waktu)
 
-				f.SetCellValue(sheet2, fmt.Sprintf("G%d", row), s.SuhuHeating)
-				f.SetCellValue(sheet2, fmt.Sprintf("H%d", row), wib.Format("15:04:05"))
-				f.SetCellValue(sheet2, fmt.Sprintf("I%d", row), s.SuhuHolding)
-				f.SetCellValue(sheet2, fmt.Sprintf("J%d", row), wib.Format("15:04:05"))
+				f.SetCellValue(sheet2, fmt.Sprintf("G%d", row), wib.Format("15:04:05"))
+				f.SetCellValue(sheet2, fmt.Sprintf("H%d", row), s.SuhuHolding)
+				f.SetCellValue(sheet2, fmt.Sprintf("I%d", row), s.SuhuHeating)
+				f.SetCellValue(sheet2, fmt.Sprintf("J%d", row), s.Flowrate)
 
 				for _, col := range []string{"G", "H", "I", "J"} {
 					cell := fmt.Sprintf("%s%d", col, row)
