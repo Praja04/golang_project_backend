@@ -1,8 +1,12 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"time"
 
 	"backend-golang/config"
@@ -302,6 +306,9 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 		ActivePane:  "bottomLeft",
 	})
 
+	// ── 4f. Tambahkan sheet 'Proses masak Pasteur' ──
+	appendSheetProsesMasakPasteur(f, startDateStr, endDateStr, shiftFilter)
+
 	// ── 5. Kirim file sebagai response download ───────────────────────────────
 	filename := fmt.Sprintf("sensor_pasteur1_%s_sd_%s.xlsx", startDateStr, endDateStr)
 	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -315,4 +322,286 @@ func ExportSensorPasteur1ToExcel(c *gin.Context) {
 			"error":   err.Error(),
 		})
 	}
+}
+
+// -----------------------------------------------------------------------------
+// Sheet 2: Proses Masak Pasteur
+// -----------------------------------------------------------------------------
+
+type FinishedBatchItem struct {
+	ID                 uint    `json:"id"`
+	ProductionBatchID  uint    `json:"production_batch_id"`
+	PONumber           string  `json:"po_number"`
+	BatchRange         string  `json:"batch_range"`
+	Variant            string  `json:"variant"`
+	Storage            string  `json:"storage"`
+	Tanggal            string  `json:"tanggal"`
+	Shift              int     `json:"shift"`
+	Group              string  `json:"group"`
+	LinePasteurisasi   string  `json:"line_pasteurisasi"`
+	JamMulaiPasteur    string  `json:"jam_mulai_pasteur"`
+	JamSelesaiPasteur  string  `json:"jam_selesai_pasteur"`
+	WaktuMulaiFull     string  `json:"waktu_mulai_full"`
+	WaktuSelesaiFull   string  `json:"waktu_selesai_full"`
+	StatusPasteurisasi string  `json:"status_pasteurisasi"`
+	Volume             float64 `json:"volume"`
+	VolumeAfterCooling float64 `json:"volume_after_cooling"`
+}
+
+type FinishedBatchResponse struct {
+	Success bool                `json:"success"`
+	Message string              `json:"message"`
+	Total   int                 `json:"total"`
+	Data    []FinishedBatchItem `json:"data"`
+}
+
+func fetchFinishedPasteurBatches(startDateStr, endDateStr, shiftFilter string) []FinishedBatchItem {
+	baseURL := os.Getenv("LARAVEL_API_URL")
+	if baseURL == "" {
+		baseURL = "http://10.11.10.130:8095"
+	}
+
+	queryParams := url.Values{}
+	if startDateStr != "" {
+		queryParams.Set("start_date", startDateStr)
+	}
+	if endDateStr != "" {
+		queryParams.Set("end_date", endDateStr)
+	}
+	if shiftFilter != "" {
+		queryParams.Set("shift", shiftFilter)
+	}
+	queryParams.Set("line", "1")
+
+	primaryEndpoint := fmt.Sprintf("%s/api/monitoring-pasteurisasi/finished-batches?%s", baseURL, queryParams.Encode())
+	fallbackEndpoint := fmt.Sprintf("http://127.0.0.1:8000/api/monitoring-pasteurisasi/finished-batches?%s", queryParams.Encode())
+
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	// 1. Coba primary endpoint terlebih dahulu (server)
+	batches, err := tryFetchBatches(client, primaryEndpoint)
+	if err == nil {
+		return batches
+	}
+
+	// 2. Fallback ke endpoint lokal jika primary belum tersedia / timeout
+	batches, err = tryFetchBatches(client, fallbackEndpoint)
+	if err == nil {
+		return batches
+	}
+
+	return nil
+}
+
+func tryFetchBatches(client *http.Client, targetURL string) ([]FinishedBatchItem, error) {
+	resp, err := client.Get(targetURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var apiResp FinishedBatchResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, err
+	}
+
+	return apiResp.Data, nil
+}
+
+func appendSheetProsesMasakPasteur(f *excelize.File, startDateStr, endDateStr, shiftFilter string) {
+	sheet2 := "Proses masak Pasteur"
+	f.NewSheet(sheet2)
+
+	// Style header kolom
+	headerStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Bold:  true,
+			Size:  10,
+			Color: "000000",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+			WrapText:   true,
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "D9D9D9", Style: 1},
+			{Type: "right", Color: "D9D9D9", Style: 1},
+			{Type: "top", Color: "D9D9D9", Style: 1},
+			{Type: "bottom", Color: "D9D9D9", Style: 1},
+		},
+	})
+
+	// Style data batch (kolom A-F)
+	batchStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Size:  10,
+			Color: "000000",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "D9D9D9", Style: 1},
+			{Type: "right", Color: "D9D9D9", Style: 1},
+			{Type: "top", Color: "D9D9D9", Style: 1},
+			{Type: "bottom", Color: "D9D9D9", Style: 1},
+		},
+	})
+
+	// Style data sensor (kolom G-J)
+	sensorStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Size:  10,
+			Color: "000000",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "D9D9D9", Style: 1},
+			{Type: "right", Color: "D9D9D9", Style: 1},
+			{Type: "top", Color: "D9D9D9", Style: 1},
+			{Type: "bottom", Color: "D9D9D9", Style: 1},
+		},
+	})
+
+	// Set Header Kolom pada Row 3
+	headers := []struct {
+		Col   string
+		Label string
+		Width float64
+	}{
+		{"A", "Po", 16},
+		{"B", "Batch", 12},
+		{"C", "varian", 14},
+		{"D", "storage", 12},
+		{"E", "jam mulai pasteur", 18},
+		{"F", "jam selesai pasteur", 18},
+		{"G", "log suhu 1", 14},
+		{"H", "waktu suhu 1", 16},
+		{"I", "log suhu 2", 14},
+		{"J", "waktu suhu 2", 16},
+	}
+
+	for _, h := range headers {
+		cell := h.Col + "3"
+		f.SetCellValue(sheet2, cell, h.Label)
+		f.SetCellStyle(sheet2, cell, cell, headerStyle)
+		f.SetColWidth(sheet2, h.Col, h.Col, h.Width)
+	}
+	f.SetRowHeight(sheet2, 3, 24)
+
+	// Ambil data batch yang telah selesai dari API Laravel
+	batches := fetchFinishedPasteurBatches(startDateStr, endDateStr, shiftFilter)
+
+	if len(batches) == 0 {
+		f.SetCellValue(sheet2, "A4", "Tidak ada data proses masak pasteurisasi yang selesai pada periode ini")
+		f.MergeCell(sheet2, "A4", "J4")
+		emptyStyle, _ := f.NewStyle(&excelize.Style{
+			Font:      &excelize.Font{Italic: true, Color: "888888"},
+			Alignment: &excelize.Alignment{Horizontal: "center", Vertical: "center"},
+		})
+		f.SetCellStyle(sheet2, "A4", "J4", emptyStyle)
+		f.SetRowHeight(sheet2, 4, 24)
+		return
+	}
+
+	currentRow := 4
+	for _, batch := range batches {
+		batchStartRow := currentRow
+
+		// Query sensor untuk rentang waktu batch ini
+		var sensors []models.SensorPasteurisasi
+		if batch.WaktuMulaiFull != "" && batch.WaktuSelesaiFull != "" {
+			config.DB.
+				Where("Waktu >= ? AND Waktu <= ?", batch.WaktuMulaiFull, batch.WaktuSelesaiFull).
+				Order("Waktu ASC").
+				Find(&sensors)
+		}
+
+		if len(sensors) == 0 {
+			// Jika tidak ada sensor log di detik tersebut, tulis 1 baris metadata batch
+			f.SetCellValue(sheet2, fmt.Sprintf("A%d", currentRow), batch.PONumber)
+			f.SetCellValue(sheet2, fmt.Sprintf("B%d", currentRow), batch.BatchRange)
+			f.SetCellValue(sheet2, fmt.Sprintf("C%d", currentRow), batch.Variant)
+			f.SetCellValue(sheet2, fmt.Sprintf("D%d", currentRow), batch.Storage)
+			f.SetCellValue(sheet2, fmt.Sprintf("E%d", currentRow), batch.JamMulaiPasteur)
+			f.SetCellValue(sheet2, fmt.Sprintf("F%d", currentRow), batch.JamSelesaiPasteur)
+
+			for _, col := range []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J"} {
+				cell := fmt.Sprintf("%s%d", col, currentRow)
+				f.SetCellStyle(sheet2, cell, cell, batchStyle)
+			}
+			f.SetRowHeight(sheet2, currentRow, 18)
+			currentRow++
+		} else {
+			// Tulis data sensor baris demi baris
+			for _, s := range sensors {
+				row := currentRow
+				wib := toWIBTime(s.Waktu)
+
+				f.SetCellValue(sheet2, fmt.Sprintf("G%d", row), s.SuhuHeating)
+				f.SetCellValue(sheet2, fmt.Sprintf("H%d", row), wib.Format("15:04:05"))
+				f.SetCellValue(sheet2, fmt.Sprintf("I%d", row), s.SuhuHolding)
+				f.SetCellValue(sheet2, fmt.Sprintf("J%d", row), wib.Format("15:04:05"))
+
+				for _, col := range []string{"G", "H", "I", "J"} {
+					cell := fmt.Sprintf("%s%d", col, row)
+					f.SetCellStyle(sheet2, cell, cell, sensorStyle)
+				}
+				f.SetRowHeight(sheet2, row, 18)
+				currentRow++
+			}
+
+			batchEndRow := currentRow - 1
+
+			// Isi data batch pada batchStartRow
+			f.SetCellValue(sheet2, fmt.Sprintf("A%d", batchStartRow), batch.PONumber)
+			f.SetCellValue(sheet2, fmt.Sprintf("B%d", batchStartRow), batch.BatchRange)
+			f.SetCellValue(sheet2, fmt.Sprintf("C%d", batchStartRow), batch.Variant)
+			f.SetCellValue(sheet2, fmt.Sprintf("D%d", batchStartRow), batch.Storage)
+			f.SetCellValue(sheet2, fmt.Sprintf("E%d", batchStartRow), batch.JamMulaiPasteur)
+			f.SetCellValue(sheet2, fmt.Sprintf("F%d", batchStartRow), batch.JamSelesaiPasteur)
+
+			// Merge kolom A-F secara vertikal bila baris sensor lebih dari 1
+			if batchEndRow > batchStartRow {
+				f.MergeCell(sheet2, fmt.Sprintf("A%d", batchStartRow), fmt.Sprintf("A%d", batchEndRow))
+				f.MergeCell(sheet2, fmt.Sprintf("B%d", batchStartRow), fmt.Sprintf("B%d", batchEndRow))
+				f.MergeCell(sheet2, fmt.Sprintf("C%d", batchStartRow), fmt.Sprintf("C%d", batchEndRow))
+				f.MergeCell(sheet2, fmt.Sprintf("D%d", batchStartRow), fmt.Sprintf("D%d", batchEndRow))
+				f.MergeCell(sheet2, fmt.Sprintf("E%d", batchStartRow), fmt.Sprintf("E%d", batchEndRow))
+				f.MergeCell(sheet2, fmt.Sprintf("F%d", batchStartRow), fmt.Sprintf("F%d", batchEndRow))
+			}
+
+			// Terapkan style batch ke seluruh cell A-F
+			for r := batchStartRow; r <= batchEndRow; r++ {
+				for _, col := range []string{"A", "B", "C", "D", "E", "F"} {
+					cell := fmt.Sprintf("%s%d", col, r)
+					f.SetCellStyle(sheet2, cell, cell, batchStyle)
+				}
+			}
+		}
+	}
+
+	// Freeze row 3 agar header tetap terlihat saat scroll
+	f.SetPanes(sheet2, &excelize.Panes{
+		Freeze:      true,
+		Split:       false,
+		XSplit:      0,
+		YSplit:      3,
+		TopLeftCell: "A4",
+		ActivePane:  "bottomLeft",
+	})
 }
